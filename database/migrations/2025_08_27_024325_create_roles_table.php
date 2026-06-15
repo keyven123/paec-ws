@@ -17,8 +17,8 @@ return new class extends Migration
             $table->string('name')->index();
             $table->string('code')->index();
             $table->boolean('is_admin')->default(false);
-            $table->uuid('created_by')->nullable();
-            $table->uuid('updated_by')->nullable();
+            $table->uuid('created_by')->nullable()->index();
+            $table->uuid('updated_by')->nullable()->index();
             $table->timestamps();
             $table->softDeletes();
             $table->index(['created_at', 'updated_at']);

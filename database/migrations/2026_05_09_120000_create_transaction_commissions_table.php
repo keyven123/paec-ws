@@ -14,57 +14,28 @@ return new class extends Migration
     {
         Schema::create('transaction_commissions', function (Blueprint $table) {
             $table->uuid('uuid')->primary();
-
-            // Polymorphic owner: usually a Transaction, but kept polymorphic so
-            // future sources (chargebacks, refund requests, manual adjustments,
-            // etc.) can also produce commission ledger rows.
             $table->uuidMorphs('accountable');
-
-            // Denormalized FKs for fast aggregation (gross sales per event /
-            // per organizer / per affiliate without joins).
             $table->uuid('transaction_uuid')->nullable()->index();
             $table->uuid('event_uuid')->nullable()->index();
             $table->uuid('organization_uuid')->nullable()->index();
             $table->uuid('agent_uuid')->nullable()->index();
-
-            // Money figures (using 12,2 — wider than the 8,2 used on the
-            // transactions table — because this is the accounting source of
-            // truth and may aggregate later).
-            //
-            // net_amount             = gross_amount − ticketoc_commission
-            //                          (i.e. organizer's net payable for this txn)
-            // ticketoc_net_commission = ticketoc_commission − agent_commission
-            //                          − payment_gateway_fixed_fee
-            //                          − payment_gateway_commission
-            //                          (i.e. what TicketOC actually keeps after
-            //                           paying the affiliate and the gateway)
-            $table->decimal('gross_amount', 12, 2)->default(0);
-            $table->decimal('net_amount', 12, 2)->default(0);
-
-            // Platform (TicketOC) commission — snapshot percent + computed amount
-            // + final amount kept after paying out affiliate and gateway fees.
+            $table->decimal('gross_amount', 12, 4)->default(0);
+            $table->decimal('markup_amount', 12, 4)->default(0);
+            $table->decimal('tax_and_fees', 12, 4)->default(0);
+            $table->timestamp('original_paid_at')->nullable();
+            $table->index('original_paid_at');
+            $table->decimal('net_amount', 12, 4)->default(0);
             $table->decimal('ticketoc_commission_percent', 5, 2)->default(0);
-            $table->decimal('ticketoc_commission', 12, 2)->default(0);
-            $table->decimal('ticketoc_net_commission', 12, 2)->default(0);
-
-            // Affiliate / agent commission — snapshot percent + computed amount.
+            $table->decimal('ticketoc_commission', 12, 4)->default(0);
+            $table->decimal('ticketoc_net_commission', 12, 4)->default(0);
             $table->decimal('agent_commission_percent', 5, 2)->default(0);
-            $table->decimal('agent_commission', 12, 2)->default(0);
-
-            // Payment gateway fee snapshot. The two amount columns are
-            // disjoint so they can be summed safely:
-            //   total_gateway_fee = payment_gateway_commission
-            //                     + payment_gateway_fixed_fee
-            //
-            // payment_gateway_commission_percent — snapshot rate (e.g. 3.900)
-            // payment_gateway_commission         — percent-only amount (e.g. PayPal 2000 × 3.9% = 78.00)
-            // payment_gateway_fixed_fee          — fixed-only amount  (e.g. PayPal additional_fee = 15.00)
+            $table->decimal('agent_commission', 12, 4)->default(0);
             $table->string('payment_provider')->index();
             $table->string('payment_method')->nullable()->index();
             $table->string('payment_id')->nullable()->index();
             $table->decimal('payment_gateway_commission_percent', 6, 3)->default(0);
-            $table->decimal('payment_gateway_fixed_fee', 12, 2)->default(0);
-            $table->decimal('payment_gateway_commission', 12, 2)->default(0);
+            $table->decimal('payment_gateway_fixed_fee', 12, 4)->default(0);
+            $table->decimal('payment_gateway_commission', 12, 4)->default(0);
 
             $table->string('currency', 8)->default('PHP');
 
@@ -74,7 +45,6 @@ return new class extends Migration
 
             $table->timestamp('date_paid')->nullable()->index();
 
-            // Audit: snapshot of the rate map / inputs used in the computation.
             $table->json('metadata')->nullable();
 
             $table->timestamps();

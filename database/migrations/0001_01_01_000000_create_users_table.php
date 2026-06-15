@@ -33,6 +33,17 @@ return new class extends Migration
             $table->string('status')->default(GeneralConstants::GENERAL_STATUSES['ACTIVE']);
             $table->boolean('is_first_time_login')->default(true);
             $table->string('qr_code')->nullable();
+            $table->string('affiliate_status', 32)->default('none');
+            $table->string('affiliate_code', 32)->nullable()->unique();
+            $table->timestamp('affiliate_applied_at')->nullable();
+            $table->timestamp('affiliate_approved_at')->nullable();
+            $table->string('affiliate_bank_name', 191)->nullable();
+            $table->string('affiliate_bank_branch', 191)->nullable();
+            $table->string('affiliate_bank_account_name', 191)->nullable();
+            $table->string('affiliate_bank_account_number', 100)->nullable();
+            $table->string('affiliate_bank_tin', 32)->nullable();
+            $table->text('affiliate_suspend_reason')->nullable();
+            $table->timestamp('affiliate_suspended_at')->nullable();
             $table->string('marketing_consent')->nullable();
             $table->date('marketing_consent_date')->nullable();
             $table->string('provider')->nullable()->index();

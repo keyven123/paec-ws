@@ -13,8 +13,9 @@ return new class extends Migration
     {
         Schema::create('event_ticket_coupons', function (Blueprint $table) {
             $table->uuid('uuid')->primary();
-            $table->uuid('event_ticket_uuid');
+            $table->uuid('event_ticket_uuid')->index();
             $table->string('name')->index();
+            $table->boolean('once_only')->default(false);
             $table->uuid('created_by')->nullable();
             $table->uuid('updated_by')->nullable();
             $table->timestamps();

@@ -16,6 +16,9 @@ return new class extends Migration
             $table->string('name')->index();
             $table->string('code')->index();
             $table->json('available_access');
+            $table->string('role_scope', 20)->default('admin')->index();
+            $table->text('description')->nullable();
+            $table->string('module')->nullable()->index();
             $table->timestamps();
             $table->softDeletes();
             $table->index(['created_at', 'updated_at']);

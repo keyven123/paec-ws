@@ -21,6 +21,8 @@ return new class extends Migration
             $table->string('name')->index();
             $table->text('description')->nullable();
             $table->decimal('price', 8, 2);
+            $table->string('markup_type')->nullable();
+            $table->decimal('markup_value', 8, 2)->nullable();
             $table->boolean('is_bundle')->default(false);
             $table->integer('bundle_quantity')->nullable();
             $table->string('discount_type')->nullable();

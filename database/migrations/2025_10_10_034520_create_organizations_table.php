@@ -22,11 +22,6 @@ return new class extends Migration
             $table->string('address')->nullable();
             $table->string('contact_number')->nullable();
             $table->string('email')->nullable();
-            $table->string('bank_name')->nullable();
-            $table->string('bank_branch')->nullable();
-            $table->string('bank_address')->nullable();
-            $table->string('bank_account_name')->nullable();
-            $table->string('bank_account_number')->nullable();
             $table->string('tin', 50)->nullable();
             $table->text('description')->nullable();
             $table->decimal('commission_percentage', 5, 2)->nullable();

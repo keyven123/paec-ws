@@ -24,8 +24,6 @@ return new class extends Migration
     {
         foreach ($this->tables as $tableName) {
             Schema::table($tableName, function (Blueprint $table) use ($tableName) {
-                // Morph alias is resolved through the morph map (e.g. 'event',
-                // 'venue_inquiry') rather than a fully-qualified class string.
                 $table->string('transactionable_type')->nullable()->after('uuid');
                 $table->uuid('transactionable_uuid')->nullable()->after('transactionable_type');
                 $table->index(['transactionable_type', 'transactionable_uuid'], "{$tableName}_transactionable_index");
