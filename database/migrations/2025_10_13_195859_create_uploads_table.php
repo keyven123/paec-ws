@@ -13,6 +13,10 @@ return new class extends Migration
     {
         Schema::create('uploads', function (Blueprint $table) {
             $table->uuid('uuid')->primary();
+            $table->string('uploadable_type')->nullable()->index();
+            $table->uuid('uploadable_uuid')->nullable()->index();
+
+            $table->string('collection', 64)->nullable()->default('default')->index();
 
             // file classification
             $table->string('type', 32)->index(); // image, csv, xlsx, pdf, video, audio, other
@@ -28,9 +32,13 @@ return new class extends Migration
             $table->unsignedInteger('width')->nullable();
             $table->unsignedInteger('height')->nullable();
             $table->string('checksum', 64)->nullable(); // sha256
+            $table->string('dominant_color', 7)->nullable();
+            $table->string('name')->nullable();
+            $table->string('alt_text')->nullable();
             $table->integer('order_number')->nullable();
 
             $table->uuid('created_by')->nullable()->index();
+            $table->index(['uploadable_type', 'uploadable_uuid'], 'uploads_uploadable_index');
             $table->timestamps();
             $table->index(['created_at']);
             $table->index(['updated_at']);

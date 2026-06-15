@@ -28,6 +28,7 @@ return new class extends Migration
             $table->string('attendee_name')->index();
             $table->string('attendee_email')->index();
             $table->string('attendee_contact')->nullable();
+            $table->string('visit_policy')->nullable()->index();
             $table->string('qr_code')->nullable()->index();
             $table->dateTime('valid_until')->nullable();
             $table->dateTime('used_at')->nullable();

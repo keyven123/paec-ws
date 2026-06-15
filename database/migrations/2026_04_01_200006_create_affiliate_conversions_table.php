@@ -11,8 +11,10 @@ return new class extends Migration
         Schema::create('affiliate_conversions', function (Blueprint $table) {
             $table->uuid('uuid')->primary();
             $table->uuid('partner_user_uuid')->index();
-            $table->uuid('transaction_uuid')->unique();
+            $table->uuid('transaction_uuid')->index();
             $table->uuid('event_uuid')->index();
+            $table->uuid('ticket_uuid')->nullable()->index();
+            $table->string('entry_type', 16)->default('credit')->index();
             $table->decimal('order_total', 12, 2);
             $table->decimal('commission_percent', 5, 2);
             $table->decimal('commission_amount', 12, 2);

@@ -25,6 +25,7 @@ return new class extends Migration
             $table->bigInteger('ticket_sold')->default(0);
             $table->bigInteger('total_orders')->default(0);
             $table->string('address')->nullable();
+            $table->string('city')->nullable()->index();
             $table->uuid('logo_uuid')->nullable();
             $table->uuid('portrait_image_uuid')->nullable();
             $table->uuid('featured_image_uuid')->nullable();
@@ -52,6 +53,9 @@ return new class extends Migration
             $table->string('slug')->unique()->nullable();
             $table->string('meta_test_event_code')->nullable();
             $table->string('status')->default(GeneralConstants::EVENT_STATUSES['DRAFT']);
+            $table->boolean('affiliate_enabled')->default(false);
+            $table->decimal('affiliate_commission_percent', 5, 2)->nullable();
+            $table->date('affiliate_ends_at')->nullable()->index();
             $table->json('blocked_seats')->nullable();
             $table->json('other_info')->nullable();
             $table->timestamp('other_info_deadline')->nullable();

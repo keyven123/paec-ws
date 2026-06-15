@@ -13,10 +13,14 @@ return new class extends Migration
             $table->uuid('transaction_uuid')->index();
             $table->uuid('activity_compliance_uuid')->index();
             $table->decimal('percentage', 5, 2)->default(0);
-            $table->decimal('amount', 12, 2)->default(0);
-            $table->timestamps();
+            $table->decimal('amount', 12, 4)->default(0);
+            $table->string('applies_to')->default('merchandise');
 
-            $table->unique(['transaction_uuid', 'activity_compliance_uuid'], 'txn_compliances_txn_rule_unique');
+            $table->unique(
+                ['transaction_uuid', 'activity_compliance_uuid', 'applies_to'],
+                'txn_compliances_txn_rule_applies_unique',
+            );
+            $table->timestamps();
 
             $table->foreign('transaction_uuid')
                 ->references('uuid')

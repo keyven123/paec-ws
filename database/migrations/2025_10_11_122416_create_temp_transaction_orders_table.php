@@ -17,9 +17,13 @@ return new class extends Migration
             $table->uuid('temp_transaction_uuid')->index();
             $table->uuid('event_ticket_uuid')->index();
             $table->integer('quantity');
-            $table->decimal('price', 8, 2);
-            $table->decimal('discount', 8, 2)->default(0);
-            $table->decimal('total_amount', 8, 2);
+            $table->decimal('price', 8, 4);
+            $table->string('markup_type')->nullable();
+            $table->decimal('markup_value', 8, 4)->nullable();
+            $table->decimal('markup', 12, 4)->default(0);
+            $table->decimal('markup_discount', 12, 4)->default(0);
+            $table->decimal('discount', 8, 4)->default(0);
+            $table->decimal('total_amount', 8, 4);
             $table->dateTime('valid_until')->nullable();
             $table->json('seats')->nullable();
             $table->timestamps();
