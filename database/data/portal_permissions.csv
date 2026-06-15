@@ -1,0 +1,13 @@
+code,available_access
+users,rwudx
+roles,rwudx
+permissions,rwudx
+events,rwudx
+tickets,rwudx
+reports,r
+settings,rwudx
+customer_events,r
+cart,rwudx
+purchase,rwudx
+my_tickets,r
+my_profile,rwudx

@@ -1,0 +1,12 @@
+name,email,role,is_active,organization_name
+Super Admin,superadmin@ticketoc.com,superadmin,FALSE,
+Admin User,admin@ticketoc.com,admin,TRUE,
+Event Organizer,jcibaliwagbuntal2025@gmail.com,organizer,TRUE,Event Organizer
+John Event Manager,airsupplyticketoc@gmail.com,organizer,FALSE,John Event Manager
+PAEC Organizer,paecticketoc@gmail.com,organizer,FALSE,PAEC Organizer
+TicketOC Admin,ticketoc@admin.com,admin,FALSE,
+WSAP Organizer,sample222@gmail.com,organizer,TRUE,WSAP Organizer
+Matt Nameko,mattnameko@gmail.com,superadmin,TRUE,
+Electric Sheep,alexander@electricsheepentertainment.com,organizer,TRUE,Electric Sheep
+Finest Media,finestmediaph@gmail.com,organizer,TRUE,Finest Media
+Philippine Wedding Suppliers,philippineweddingsuppliers@gmail.com,organizer,TRUE,Philippine Wedding Suppliers

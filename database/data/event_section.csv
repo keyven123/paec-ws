@@ -1,0 +1,5 @@
+name,title,description,display_order,is_hidden
+featured,Featured Events,Featured events,1,false
+amusements,Amusements,Amusements happening every day,1,true
+open_pass,Open Pass,This is an open pass event which is free for all,1,false
+new_event,New Event,This is a new event,1,false

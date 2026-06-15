@@ -1,0 +1,41 @@
+name,code,module,available_access,role_scope,description
+Dashboard,dashboard,Dashboard Module,rx,admin,Access the platform admin home dashboard and high-level overview widgets.
+Organizer Dashboard,organizer-dashboard,Dashboard Module,rx,organizer,Access the merchant partner portal dashboard with stats and activity summaries.
+Analytics,analytics,Intelligence Module,rx,admin,View platform-wide analytics charts and export reports for all organizations.
+Organizer Analytics,organizer-analytics,Intelligence Module,r,organizer,View analytics and performance charts scoped to the merchant partner organization.
+Organizer Accounting,organizer-accounting,Intelligence Module,rw,organizer,"Finance Module: View remittance, payouts, and accounting summaries; submit payout requests."
+Finance,finance,Finance Module,rx,admin,Access the platform finance console for profit and loss and operator remittance tools.
+User,users,User Management Module,rwudx,admin,"Manage end-customer accounts: list, create, update, delete, and export customer records."
+Admin Users,admin-users,User Management Module,rwudx,admin,"Manage platform and merchant partner staff accounts, including roles and organization assignment."
+Roles,roles,User Management Module,rwudx,admin,Create and configure roles plus assign module permissions for admin and merchant partner users.
+Permissions,permissions,User Management Module,r,admin,View the catalog of permission modules (editing is controlled via roles).
+Tickets,tickets,User Management Module,rwudxeia,admin,"Issue, update, void, export, and import individual issued tickets and attendee records."
+Events,events,Activities Module,rwudei,shared,"Manage ticketed events: create, edit, publish, cancel, export, and import event listings."
+Fun,fun,Activities Module,rwudei,shared,"Manage Fun experiences: create, edit, publish, cancel, export, and import Fun listings."
+Event Section,event-sections,Activities Module,rwud,shared,Configure event page sections and content blocks shown on public event pages.
+Event Tickets,event-tickets,Activities Module,rwudx,shared,"Manage ticket types, pricing tiers, and inventory tied to an event."
+Event Scanner,event-scanner,Activities Module,rw,shared,Use QR or barcode scanning tools to validate tickets at the venue entrance.
+Schedules,schedules,Activities Module,rwudx,shared,Create and maintain event schedules and recurring or multi-day run dates.
+Schedule Times,schedule-times,Activities Module,rwudx,shared,Define individual time slots or sessions within an event schedule.
+Transactions,transactions,Partners Module,rwudx,shared,"View and manage payment transactions, including refunds and transaction exports where enabled."
+Organizations,organizations,Partners Module,rwudx,admin,"Manage merchant partner and affiliate organizations, profiles, and related settings."
+Organizers,organizers,Dashboard Module,rwudx,shared,Dashboard Stats Recent Activities and Upcoming Event.
+Payments,payments,Partners Module,rwudx,admin,Configure payment gateways, methods, and platform payment-related settings.
+Commissions,commissions,Partners Module,ru,admin,View and set platform commission rates for merchant partners including change history.
+Payment Methods,payment-methods,Partners Module,ru,admin,Enable or disable checkout payment methods for individual merchant partners.
+Activity Compliance,activity-compliances,Partners Module,rwud,admin,"View and manage per-event taxes and fees (VAT, city tax, service charge) for merchant partners."
+Markup,markups,Partners Module,ru,admin,View merchant ticket base pricing and set platform markup per ticket type (hidden from customers and merchants).
+Affiliate Partners,affiliate-partners,Partners Module,ru,admin,View affiliate partner enrollments and suspend or reinstate partner access.
+Affiliate Events,affiliate-events,Partners Module,ru,admin,View ticket events and configure per-event affiliate commission settings.
+Affiliate Fun,affiliate-funs,Partners Module,ru,admin,View Fun listings and configure per-listing affiliate commission settings.
+Affiliate Payouts,affiliate-payouts,Partners Module,ru,admin,Review affiliate payout requests and approve or decline withdrawals.
+Promo Codes,promo-codes,Promo Code Module,rwudx,shared,"Create and manage promotional discount codes applied during checkout."
+Upload,uploads,Other Module,rwud,shared,Upload images and files used across events, venues, and organization branding.
+Categories,categories,Other Module,rwudx,shared,Organize events and Fun items with categories used in filters and admin forms.
+Venues,venues,Other Module,rwudx,shared,"Manage venues, seating layouts, and location details for in-person events."
+Venue Listing,venue-listings,Venue Listing,rwudx,shared,"Manage marketplace venue listings: create, update, publish, delete, and export rental spaces."
+Reports,reports,Other Module,rx,admin,View and export platform-level operational and sales reports.
+Settings,settings,Other Module,rwudx,admin,Configure global platform settings such as fees, defaults, and system options.
+CMS,cms,Other Module,rwudx,admin,"Manage marketplace information pages and editable footer content."
+Notifications,notifications,Other Module,rwudx,admin,Manage system and email notification templates and delivery settings.
+Profile,profile,Other Module,r,shared,View and update the signed-in user profile and organization profile details.

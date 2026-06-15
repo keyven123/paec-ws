@@ -1,0 +1,33 @@
+name,code,type
+Culture & Entertainment,culture_entertainment,event
+Arts,arts,event
+Community,community,event
+Charity & Advocacy,charity_advocacy,event
+Concerts & Live Performances,concerts_performances,event
+Conferences & Summits,conferences_summits,event
+Corporate & Internal Events,corporate_internal,event
+Inductions / Inaugurations,inductions_inaugurations,event
+MICE (Meetings Incentives Conventions & Exhibitions),mice,event
+Online & Hybrid Events,online_hybrid_events,event
+Social,social,event
+Lifestyle & Networking,lifestyle_networking,event
+Sports,sports,event
+Fitness & Wellness,fitness_wellness,event
+Weddings & Private Celebrations,weddings_private_celebrations,event
+Workshops,workshops,event
+Trainings & Masterclasses,trainings_masterclasses,event
+Attractions,attractions,fun
+Games,games,fun
+Food & Booths,food_booths,fun
+All-Day Activities,all_day_activites,fun
+Others,other-fun,fun
+Arcade / Game Zone,arcade_game_zone,fun
+Cultural & Heritage Attraction,cultural_heritage,fun
+Family Entertainment Center (FEC),family_entertainment_center,fun
+Indoor Playground,indoor_playground,fun
+Museum / Educational Attraction,museum_educational_attraction,fun
+Nature & Eco Attraction,nature_eco_attraction,fun
+Outdoor Adventure,outdoor_adventure,fun
+Sports & Activity Center,sports_activity_center,fun
+Water Park,water_park,fun
+Zoo / Aquarium,zoo_aquarium,fun

@@ -1,0 +1,10 @@
+col,row,color,category,order_start,status
+1-2,S,skyblue,sky,1,active
+1-4,O,skyblue,orbit,1,active
+1,LWM,orange,left_wing_mini,1,active
+2-6,LW,orange,left_wing,1,active
+7,LWM,orange,left_wing_mini,1,active
+1,RWM,orange,right_wing_mini,1,active
+2-6,RW,orange,right_wing,1,active
+7,RWM,orange,right_wing_mini,1,active
+1-16,CP,violet,cockpit,1,active

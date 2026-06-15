@@ -1,0 +1,10 @@
+col,row,color,category,order_start,status
+19-59,A,green,svip,19,active
+20-60,B,green,svip,20,active
+21-61,C,green,svip,21,active
+21-61,D,green,svip,21,active
+21-63,E,green,svip,21,active
+21-63,F,green,svip,21,active
+20-63,G,green,svip,20,active
+30-53,H,green,svip,30,active
+30-54,I,green,svip,30,active

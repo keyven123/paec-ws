@@ -1,0 +1,10 @@
+col,row,color,category,order_start,status
+16-66,M,gold,gold,16,active
+16-67,N,gold,gold,16,active
+16-67,O,gold,gold,16,active
+16-69,P,gold,gold,16,active
+15-68,Q,gold,gold,15,active
+27-57,R,gold,gold,27,active
+27-57,S,gold,gold,27,active
+36-47,T,black,technical booth,36,nactive
+43-53,U,black,technical booth,43,inactive

@@ -1,0 +1,77 @@
+<?php
+
+namespace App\Http\Requests\TicketSeat;
+
+use App\Models\Ticket;
+use App\Models\TicketSeat;
+use App\Models\Venue;
+use App\Models\VenueSeat;
+use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
+
+class UpdateTicketSeatRequest extends FormRequest
+{
+    /**
+     * Get the validation rules that apply to the request.
+     *
+     * @return array<string, \Illuminate\Contracts\Validation\ValidationRule|array<mixed>|string>
+     */
+    public function rules(): array
+    {
+        return [
+            'uuid' => [
+                'required',
+                'uuid',
+                Rule::exists(TicketSeat::class, 'uuid')
+                    ->whereNull('deleted_at')
+            ],
+            'ticket_uuid' => [
+                'sometimes',
+                'uuid',
+                Rule::exists(Ticket::class, 'uuid')->whereNull('deleted_at')
+            ],
+            'venue_uuid' => [
+                'sometimes',
+                'uuid',
+                Rule::exists(Venue::class, 'uuid')->whereNull('deleted_at')
+            ],
+            'venue_seat_uuid' => [
+                'sometimes',
+                'uuid',
+                Rule::exists(VenueSeat::class, 'uuid')->whereNull('deleted_at')
+            ],
+            'col' => ['sometimes', 'string', 'max:10'],
+            'row' => ['sometimes', 'integer', 'min:1'],
+            'seat_no' => ['sometimes', 'integer', 'min:1'],
+            'category' => ['sometimes', Rule::in(['bronze', 'silver', 'gold', 'vip', 'svip'])],
+            'color' => ['sometimes', Rule::in(['bronze', 'silver', 'gold', 'red', 'green'])],
+            'status' => ['nullable', 'string'],
+        ];
+    }
+
+    /**
+     * Prepare the data for validation.
+     */
+    protected function prepareForValidation(): void
+    {
+        $this->merge([
+            'uuid' => $this->route('uuid')
+        ]);
+    }
+
+    /**
+     * Get custom messages for validator errors.
+     *
+     * @return array
+     */
+    public function messages(): array
+    {
+        return [
+            'ticket_uuid.exists' => 'The selected ticket does not exist.',
+            'venue_seat_uuid.exists' => 'The selected venue seat does not exist.',
+            'venue_seat_uuid.unique' => 'This venue seat is already assigned to this ticket.',
+            'category.in' => 'The category must be one of: bronze, silver, gold, vip, svip.',
+            'color.in' => 'The color must be one of: bronze, silver, gold, red, green.',
+        ];
+    }
+}

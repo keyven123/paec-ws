@@ -1,0 +1,5 @@
+code,available_access
+events,r
+tickets,r
+payments,rwud
+notifications,r

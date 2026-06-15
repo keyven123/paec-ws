@@ -1,0 +1,11 @@
+col,row,color,category,order_start,status
+1-5,A,bronze,bronze,1,active
+73-77,A,bronze,bronze,73,active
+1-5,B,bronze,bronze,1,active
+75-79,B,bronze,bronze,75,active
+1-5,C,bronze,bronze,1,active
+77-81,C,bronze,bronze,77,active
+1-5,D,bronze,bronze,1,active
+77-81,D,bronze,bronze,77,active
+1-12,U,bronze,bronze,1,active
+73-84,U,bronze,bronze,84,active
