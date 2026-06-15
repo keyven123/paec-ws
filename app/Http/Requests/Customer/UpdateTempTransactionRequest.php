@@ -109,6 +109,20 @@ class UpdateTempTransactionRequest extends FormRequest
                     $validator->errors()->add("tickets.{$index}.valid_until", 'Date of Visit is required for this priority ticket.');
                 }
             }
+
+            foreach ($tickets as $index => $ticket) {
+                if (empty($ticket['valid_until'])) {
+                    continue;
+                }
+
+                $visitDate = \Carbon\Carbon::parse($ticket['valid_until'])->toDateString();
+                if (!$event->isVisitDateBookable($visitDate)) {
+                    $validator->errors()->add(
+                        "tickets.{$index}.valid_until",
+                        "Today's visit date is no longer available. Please choose another date.",
+                    );
+                }
+            }
         });
     }
 

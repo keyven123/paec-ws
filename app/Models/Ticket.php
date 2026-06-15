@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Constants\GeneralConstants;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -188,38 +189,72 @@ class Ticket extends Model
     }
 
     /**
-     * Ticket event schedule has ended (even if status is still active/unused).
+     * SQL expression for schedule date + end time, compatible with MySQL and SQLite.
+     */
+    public static function scheduleEndTimestampSql(): string
+    {
+        if (DB::connection()->getDriverName() === 'sqlite') {
+            return "datetime(COALESCE(schedules.date_to, schedules.date_from) || ' ' || schedule_times.time_end)";
+        }
+
+        return 'TIMESTAMP(COALESCE(schedules.date_to, schedules.date_from), schedule_times.time_end)';
+    }
+
+    /**
+     * Ticket visit date or event schedule has ended (even if status is still active/unused).
+     * Visit-date tickets stay valid through the end of the visit day (11:59 PM Manila).
      */
     public function scopeSchedulePastDue(Builder $query): Builder
     {
-        $now = Carbon::now();
+        $now = Carbon::now('Asia/Manila');
         $today = $now->toDateString();
 
         return $query->where(function (Builder $q) use ($now, $today) {
-            $q->where(function (Builder $inner) use ($now) {
-                $inner->whereNotNull('valid_until')->where('valid_until', '<', $now);
-            })->orWhereExists(function ($sub) use ($now, $today) {
-                $sub->selectRaw('1')
-                    ->from('transactions')
-                    ->join('schedules', 'schedules.uuid', '=', 'transactions.schedule_uuid')
-                    ->leftJoin('schedule_times', 'schedule_times.uuid', '=', 'transactions.schedule_time_uuid')
-                    ->whereColumn('transactions.uuid', 'tickets.transaction_uuid')
-                    ->where(function ($when) use ($now, $today) {
-                        $when->where(function ($withTime) use ($now) {
-                            $withTime->whereNotNull('schedule_times.time_end')
-                                ->whereRaw(
-                                    'TIMESTAMP(COALESCE(schedules.date_to, schedules.date_from), schedule_times.time_end) < ?',
-                                    [$now]
-                                );
-                        })->orWhere(function ($dateOnly) use ($today) {
-                            $dateOnly->where(function ($timeMissing) {
-                                $timeMissing->whereNull('schedule_times.time_end')
-                                    ->orWhereNull('transactions.schedule_time_uuid');
-                            })->whereRaw(
-                                'DATE(COALESCE(schedules.date_to, schedules.date_from)) < ?',
-                                [$today]
-                            );
-                        });
+            $q->where(function (Builder $visitPast) use ($today) {
+                $visitPast->where(function (Builder $inner) use ($today) {
+                    $inner->whereNotNull('valid_until')
+                        ->whereRaw('DATE(valid_until) < ?', [$today]);
+                })->orWhereExists(function ($sub) use ($today) {
+                    $sub->selectRaw('1')
+                        ->from('transaction_orders')
+                        ->whereColumn('transaction_orders.transaction_uuid', 'tickets.transaction_uuid')
+                        ->whereColumn('transaction_orders.event_ticket_uuid', 'tickets.event_ticket_uuid')
+                        ->whereNotNull('transaction_orders.valid_until')
+                        ->whereRaw('DATE(transaction_orders.valid_until) < ?', [$today]);
+                });
+            })->orWhere(function (Builder $schedulePast) use ($now, $today) {
+                $schedulePast
+                    ->whereNull('tickets.valid_until')
+                    ->whereNotExists(function ($sub) {
+                        $sub->selectRaw('1')
+                            ->from('transaction_orders')
+                            ->whereColumn('transaction_orders.transaction_uuid', 'tickets.transaction_uuid')
+                            ->whereColumn('transaction_orders.event_ticket_uuid', 'tickets.event_ticket_uuid')
+                            ->whereNotNull('transaction_orders.valid_until');
+                    })
+                    ->whereExists(function ($sub) use ($now, $today) {
+                        $sub->selectRaw('1')
+                            ->from('transactions')
+                            ->join('schedules', 'schedules.uuid', '=', 'transactions.schedule_uuid')
+                            ->leftJoin('schedule_times', 'schedule_times.uuid', '=', 'transactions.schedule_time_uuid')
+                            ->whereColumn('transactions.uuid', 'tickets.transaction_uuid')
+                            ->where(function ($when) use ($now, $today) {
+                                $when->where(function ($withTime) use ($now) {
+                                    $withTime->whereNotNull('schedule_times.time_end')
+                                        ->whereRaw(
+                                            self::scheduleEndTimestampSql() . ' < ?',
+                                            [$now]
+                                        );
+                                })->orWhere(function ($dateOnly) use ($today) {
+                                    $dateOnly->where(function ($timeMissing) {
+                                        $timeMissing->whereNull('schedule_times.time_end')
+                                            ->orWhereNull('transactions.schedule_time_uuid');
+                                    })->whereRaw(
+                                        'DATE(COALESCE(schedules.date_to, schedules.date_from)) < ?',
+                                        [$today]
+                                    );
+                                });
+                            });
                     });
             });
         });
@@ -227,49 +262,71 @@ class Ticket extends Model
 
     public function scopeScheduleNotPastDue(Builder $query): Builder
     {
-        $now = Carbon::now();
+        $now = Carbon::now('Asia/Manila');
         $today = $now->toDateString();
 
         return $query->where(function (Builder $q) use ($now, $today) {
-            $q->where(function (Builder $inner) use ($now) {
-                $inner->whereNull('valid_until')->orWhere('valid_until', '>=', $now);
-            })->where(function (Builder $inner) use ($now, $today) {
-                $inner->whereDoesntHave('transaction', function (Builder $tx) {
-                    $tx->whereNotNull('schedule_uuid');
-                })->orWhereNotExists(function ($sub) use ($now, $today) {
+            $q->where(function (Builder $visitCurrent) use ($today) {
+                $visitCurrent->where(function (Builder $inner) use ($today) {
+                    $inner->whereNotNull('valid_until')
+                        ->whereRaw('DATE(valid_until) >= ?', [$today]);
+                })->orWhereExists(function ($sub) use ($today) {
                     $sub->selectRaw('1')
-                        ->from('transactions')
-                        ->join('schedules', 'schedules.uuid', '=', 'transactions.schedule_uuid')
-                        ->leftJoin('schedule_times', 'schedule_times.uuid', '=', 'transactions.schedule_time_uuid')
-                        ->whereColumn('transactions.uuid', 'tickets.transaction_uuid')
-                        ->where(function ($when) use ($now, $today) {
-                            $when->where(function ($withTime) use ($now) {
-                                $withTime->whereNotNull('schedule_times.time_end')
-                                    ->whereRaw(
-                                        'TIMESTAMP(COALESCE(schedules.date_to, schedules.date_from), schedule_times.time_end) < ?',
-                                        [$now]
-                                    );
-                            })->orWhere(function ($dateOnly) use ($today) {
-                                $dateOnly->where(function ($timeMissing) {
-                                    $timeMissing->whereNull('schedule_times.time_end')
-                                        ->orWhereNull('transactions.schedule_time_uuid');
-                                })->whereRaw(
-                                    'DATE(COALESCE(schedules.date_to, schedules.date_from)) < ?',
-                                    [$today]
-                                );
-                            });
-                        });
+                        ->from('transaction_orders')
+                        ->whereColumn('transaction_orders.transaction_uuid', 'tickets.transaction_uuid')
+                        ->whereColumn('transaction_orders.event_ticket_uuid', 'tickets.event_ticket_uuid')
+                        ->whereNotNull('transaction_orders.valid_until')
+                        ->whereRaw('DATE(transaction_orders.valid_until) >= ?', [$today]);
                 });
+            })->orWhere(function (Builder $scheduleCurrent) use ($now, $today) {
+                $scheduleCurrent
+                    ->whereNull('tickets.valid_until')
+                    ->whereNotExists(function ($sub) {
+                        $sub->selectRaw('1')
+                            ->from('transaction_orders')
+                            ->whereColumn('transaction_orders.transaction_uuid', 'tickets.transaction_uuid')
+                            ->whereColumn('transaction_orders.event_ticket_uuid', 'tickets.event_ticket_uuid')
+                            ->whereNotNull('transaction_orders.valid_until');
+                    })
+                    ->where(function (Builder $inner) use ($now, $today) {
+                        $inner->whereDoesntHave('transaction', function (Builder $tx) {
+                            $tx->whereNotNull('schedule_uuid');
+                        })->orWhereNotExists(function ($sub) use ($now, $today) {
+                            $sub->selectRaw('1')
+                                ->from('transactions')
+                                ->join('schedules', 'schedules.uuid', '=', 'transactions.schedule_uuid')
+                                ->leftJoin('schedule_times', 'schedule_times.uuid', '=', 'transactions.schedule_time_uuid')
+                                ->whereColumn('transactions.uuid', 'tickets.transaction_uuid')
+                                ->where(function ($when) use ($now, $today) {
+                                    $when->where(function ($withTime) use ($now) {
+                                        $withTime->whereNotNull('schedule_times.time_end')
+                                            ->whereRaw(
+                                                self::scheduleEndTimestampSql() . ' < ?',
+                                                [$now]
+                                            );
+                                    })->orWhere(function ($dateOnly) use ($today) {
+                                        $dateOnly->where(function ($timeMissing) {
+                                            $timeMissing->whereNull('schedule_times.time_end')
+                                                ->orWhereNull('transactions.schedule_time_uuid');
+                                        })->whereRaw(
+                                            'DATE(COALESCE(schedules.date_to, schedules.date_from)) < ?',
+                                            [$today]
+                                        );
+                                    });
+                                });
+                        });
+                    });
             });
         });
     }
 
     public function isSchedulePastDue(): bool
     {
-        if ($this->valid_until && $this->valid_until->isPast()) {
-            return true;
+        if ($this->hasVisitDate()) {
+            return $this->isVisitDatePastDue();
         }
 
+        $now = Carbon::now('Asia/Manila');
         $transaction = $this->transaction;
         if (!$transaction?->schedule_uuid) {
             return false;
@@ -291,10 +348,45 @@ class Ticket extends Model
 
         $scheduleTime = $transaction->scheduleTime;
         if ($scheduleTime?->time_end) {
-            return Carbon::parse($eventDate->format('Y-m-d') . ' ' . $scheduleTime->time_end)->isPast();
+            return Carbon::parse(
+                $eventDate->format('Y-m-d') . ' ' . $scheduleTime->time_end,
+                'Asia/Manila',
+            )->lt($now);
         }
 
-        return $eventDate->copy()->endOfDay()->isPast();
+        return $eventDate->copy()->timezone('Asia/Manila')->endOfDay()->lt($now);
+    }
+
+    public function hasVisitDate(): bool
+    {
+        if ($this->valid_until) {
+            return true;
+        }
+
+        $transaction = $this->transaction;
+        if (!$transaction) {
+            return false;
+        }
+
+        if (!$transaction->relationLoaded('transactionOrders')) {
+            $transaction->load('transactionOrders');
+        }
+
+        return $transaction->transactionOrders
+            ->contains(fn (TransactionOrder $order) => $order->event_ticket_uuid === $this->event_ticket_uuid
+                && $order->valid_until !== null);
+    }
+
+    public function isVisitDatePastDue(): bool
+    {
+        $visitDate = $this->resolveDateOfVisit();
+        if (!$visitDate) {
+            return false;
+        }
+
+        $today = Carbon::now('Asia/Manila')->toDateString();
+
+        return $visitDate->copy()->timezone('Asia/Manila')->toDateString() < $today;
     }
 
     public function resolveDateOfVisit(): ?Carbon

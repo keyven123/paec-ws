@@ -39,6 +39,7 @@ Route::prefix('events')->group(function () {
         Route::patch('/{uuid}/request-for-featured', [EventController::class, 'requestForFeatured']);
         Route::patch('/{uuid}/cancel-for-featured', [EventController::class, 'cancelForFeatured']);
         Route::patch('/arrange-featured-events', [EventController::class, 'arrangeFeaturedEvents']);
+        Route::patch('/{uuid}/today-cutoff', [EventController::class, 'updateTodayCutoff']);
         Route::post('/{uuid}/blocked-dates', [BlockedDateController::class, 'store'])
             ->defaults('blockableType', 'event');
         Route::delete('/{uuid}/blocked-dates/{blocked_date_uuid}', [BlockedDateController::class, 'destroy'])

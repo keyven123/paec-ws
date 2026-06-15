@@ -33,6 +33,30 @@ class ApiAuthEndpointsTest extends TestCase
         ])->assertStatus(422);
     }
 
+    public function test_customer_register_creates_account_without_email_verification(): void
+    {
+        $response = $this->postJson('/api/v1/register', [
+            'first_name' => 'Jane',
+            'last_name' => 'Customer',
+            'address' => '123 Test Street, Manila',
+            'phone_number' => '+639171112233',
+            'email' => 'newcustomer@paec.com',
+            'password' => 'Password123!',
+            'password_confirmation' => 'Password123!',
+            'terms_accepted' => true,
+        ]);
+
+        $response->assertCreated()
+            ->assertJsonStructure(['success', 'message', 'access_token', 'user'])
+            ->assertJsonPath('user.email', 'newcustomer@paec.com');
+
+        $this->assertDatabaseHas('users', [
+            'email' => 'newcustomer@paec.com',
+            'first_name' => 'Jane',
+            'address_line_1' => '123 Test Street, Manila',
+        ]);
+    }
+
     public function test_customer_register_requires_valid_payload(): void
     {
         $this->postJson('/api/v1/register', [])

@@ -69,6 +69,7 @@ class Event extends Model implements Blockable
         'slug',
         'status',
         'blocked_seats',
+        'today_cutoff_time',
         'other_info',
         'other_info_deadline',
         'affiliate_enabled',
@@ -145,6 +146,7 @@ class Event extends Model implements Blockable
         'slug',
         'status',
         'blocked_seats',
+        'today_cutoff_time',
         'other_info',
         'other_info_deadline',
         'affiliate_enabled',
@@ -499,5 +501,37 @@ class Event extends Model implements Blockable
             ->get()
             ->sortBy(fn($u) => $uuids->search($u->uuid)) // keep original order
             ->values();
+    }
+
+    public function formattedTodayCutoffTime(): ?string
+    {
+        if (empty($this->today_cutoff_time)) {
+            return null;
+        }
+
+        return substr((string) $this->today_cutoff_time, 0, 5);
+    }
+
+    public function isVisitDateBookable(string $visitDate, ?Carbon $now = null): bool
+    {
+        $timezone = (string) config('app.timezone', 'Asia/Manila');
+        $now = $now ?? now($timezone);
+        $visit = Carbon::parse($visitDate, $timezone)->startOfDay();
+        $today = $now->copy()->startOfDay();
+
+        if ($visit->lt($today)) {
+            return false;
+        }
+
+        if ($visit->equalTo($today) && !empty($this->today_cutoff_time)) {
+            $cutoff = Carbon::parse(
+                $today->toDateString() . ' ' . $this->today_cutoff_time,
+                $timezone,
+            );
+
+            return $now->lt($cutoff);
+        }
+
+        return true;
     }
 }

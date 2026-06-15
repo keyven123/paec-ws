@@ -25,6 +25,7 @@ use App\Http\Resources\BrowseByCityLocationResource;
 use App\Http\Repositories\UploadRepository;
 use App\Http\Repositories\TransactionRepository;
 use App\Http\Requests\Event\ArrangeFeatureEventRequest;
+use App\Http\Requests\Event\UpdateTodayCutoffRequest;
 use App\Models\AffiliateConversion;
 use App\Models\AdminUser;
 use App\Models\Event;
@@ -940,6 +941,33 @@ class EventController extends Controller
             'success' => true,
             'message' => 'Featured events arrangement successfully updated',
         ]);
+    }
+
+    public function updateTodayCutoff(UpdateTodayCutoffRequest $request, string $uuid): JsonResponse
+    {
+        try {
+            $event = $this->eventRepository->fetchOrThrow('uuid', $uuid);
+            $cutoff = $request->validated()['today_cutoff_time'] ?? null;
+
+            $event->update([
+                'today_cutoff_time' => $cutoff ? $cutoff . ':00' : null,
+            ]);
+
+            $this->clearPublicEventsCache();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Today cut-off time updated.',
+                'data' => [
+                    'today_cutoff_time' => $event->fresh()->formattedTodayCutoffTime(),
+                ],
+            ]);
+        } catch (NoEventFoundException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Event not found',
+            ], 404);
+        }
     }
 
     /**

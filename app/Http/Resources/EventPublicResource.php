@@ -57,6 +57,7 @@ class EventPublicResource extends JsonResource
                 : null,
             'affiliate_ends_at' => $this->affiliate_ends_at?->format('Y-m-d'),
             'price_start' => $this->eventTickets->min('price'),
+            'today_cutoff_time' => $this->formattedTodayCutoffTime(),
             'schedules' => $this->whenLoaded('schedules', function () {
                 return $this->schedules->map(function ($schedule) {
                     return [

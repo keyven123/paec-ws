@@ -43,6 +43,7 @@ class EventShowPublicResource extends JsonResource
             'slug' => $this->slug,
             'other_info' => $this->other_info,
             'other_info_deadline' => $this->other_info_deadline?->toDateTimeString(),
+            'today_cutoff_time' => $this->formattedTodayCutoffTime(),
             'payment_methods' => $this->whenLoaded('organization', function () {
                 return OrganizationPaymentMethods::normalize($this->organization?->payment_methods);
             }),

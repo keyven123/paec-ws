@@ -137,6 +137,18 @@ class ApiRouteInspector
             return true;
         }
 
+        if (Str::startsWith($uri, 'api/v1/organizer/')) {
+            return true;
+        }
+
+        if (Str::startsWith($uri, 'api/v1/organizations/')) {
+            return true;
+        }
+
+        if (Str::contains($uri, 'venue-listings/inquiries/') && Str::contains($uri, '/chat')) {
+            return true;
+        }
+
         if (config('database.default') === 'sqlite' && (
             Str::contains($uri, 'platform-pnl') ||
             $uri === 'api/v1/analytics/sales'

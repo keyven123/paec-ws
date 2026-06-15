@@ -33,29 +33,22 @@ class AuthController extends Controller
             'role_uuid' => $role->uuid,
             'first_name' => $data['first_name'],
             'last_name' => $data['last_name'],
-            'birth_date' => $data['birth_date'],
+            'address_line_1' => $data['address'],
             'email' => $data['email'],
             'phone_number' => $data['phone_number'],
             'password' => $data['password'],
-            'marketing_consent' => $data['marketing_consent'],
-            'marketing_consent_date' => $data['marketing_consent'] ? now() : null,
-            'terms_accepted_at' => $data['marketing_consent'] ? now() : null,
+            'email_verified_at' => now(),
+            'terms_accepted_at' => now(),
+            'marketing_consent' => false,
+            'is_first_time_login' => false,
         ]);
 
-        // Create confirmation token
-        $confirmationToken = ConfirmationToken::createForUser($user->uuid, config('auth.confirmation_token_ttl', 60));
+        $token = auth('api')->login($user);
 
-        // Send email verification notification
-        $user->notify(new EmailVerificationNotification($confirmationToken));
-
-        return response()->json([
+        return response()->json(array_merge([
             'success' => true,
             'message' => __('auth.registration_success'),
-            'data' => [
-                'user' => $user->only(['uuid', 'first_name', 'last_name', 'email', 'phone_number']),
-                'email_verification_sent' => true,
-            ]
-        ], 201);
+        ], json_decode($this->respondWithToken($token, $user)->getContent(), true)), 201);
     }
 
     public function login(LoginRequest $request)

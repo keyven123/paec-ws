@@ -50,6 +50,10 @@ class TicketRepository
 
     public function getSpecificTicketByUser(array $filters): Builder
     {
+        $userUuid = auth('api')->user()->uuid;
+        $this->reactivatePrematurelyExpiredTicketsForUser($userUuid);
+        $this->expirePastVisitTicketsForUser($userUuid);
+
         return $this->ticket->with([
             'transaction',
             'transaction.transactionOrders',
@@ -70,6 +74,43 @@ class TicketRepository
             ->filters($filters)
             ->notInactive()
             ->orderBy('created_at', 'desc');
+    }
+
+    public function expirePastVisitTicketsForUser(string $userUuid): int
+    {
+        return $this->ticket->newQuery()
+            ->where('user_uuid', $userUuid)
+            ->whereIn('status', [
+                GeneralConstants::TICKET_STATUSES['PENDING'],
+                GeneralConstants::TICKET_STATUSES['ACTIVE'],
+            ])
+            ->whereNull('used_at')
+            ->schedulePastDue()
+            ->update(['status' => GeneralConstants::TICKET_STATUSES['EXPIRED']]);
+    }
+
+    public function reactivatePrematurelyExpiredTicketsForUser(string $userUuid): int
+    {
+        $today = Carbon::now('Asia/Manila')->toDateString();
+
+        return $this->ticket->newQuery()
+            ->where('user_uuid', $userUuid)
+            ->where('status', GeneralConstants::TICKET_STATUSES['EXPIRED'])
+            ->whereNull('used_at')
+            ->where(function (Builder $query) use ($today) {
+                $query->where(function (Builder $inner) use ($today) {
+                    $inner->whereNotNull('valid_until')
+                        ->whereRaw('DATE(valid_until) >= ?', [$today]);
+                })->orWhereExists(function ($sub) use ($today) {
+                    $sub->selectRaw('1')
+                        ->from('transaction_orders')
+                        ->whereColumn('transaction_orders.transaction_uuid', 'tickets.transaction_uuid')
+                        ->whereColumn('transaction_orders.event_ticket_uuid', 'tickets.event_ticket_uuid')
+                        ->whereNotNull('transaction_orders.valid_until')
+                        ->whereRaw('DATE(transaction_orders.valid_until) >= ?', [$today]);
+                });
+            })
+            ->update(['status' => GeneralConstants::TICKET_STATUSES['ACTIVE']]);
     }
 
     /**

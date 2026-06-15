@@ -47,6 +47,7 @@ class ShowEventResource extends JsonResource
             // Note: meta_pixel_key is intentionally excluded from public responses for security
             'other_info' => $this->other_info,
             'other_info_deadline' => $this->other_info_deadline?->toISOString(),
+            'today_cutoff_time' => $this->formattedTodayCutoffTime(),
             'status' => $this->status,
             'approved_at' => $this->approved_at?->toISOString(),
             'created_at' => $this->created_at?->toISOString(),

@@ -90,6 +90,7 @@ class EventResource extends JsonResource
             'affiliate_commission_percent' => $this->affiliate_commission_percent !== null ? (float) $this->affiliate_commission_percent : null,
             'affiliate_ends_at' => $this->affiliate_ends_at?->format('Y-m-d'),
             'status' => $this->status,
+            'today_cutoff_time' => $this->formattedTodayCutoffTime(),
             'created_at' => $this->created_at?->toISOString(),
             'updated_at' => $this->updated_at?->toISOString(),
 
