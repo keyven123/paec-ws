@@ -6,7 +6,7 @@
     "keywords": ["laravel", "paec", "api"],
     "license": "MIT",
     "require": {
-        "php": "^8.2",
+        "php": "^8.4",
         "dompdf/dompdf": "^3.1",
         "endroid/qr-code": "5.0",
         "guzzlehttp/guzzle": "^7.8",
