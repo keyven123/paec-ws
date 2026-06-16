@@ -57,6 +57,7 @@ return new class extends Migration
             $table->decimal('affiliate_commission_percent', 5, 2)->nullable();
             $table->date('affiliate_ends_at')->nullable()->index();
             $table->json('blocked_seats')->nullable();
+            $table->time('today_cutoff_time')->nullable();
             $table->json('other_info')->nullable();
             $table->timestamp('other_info_deadline')->nullable();
             $table->timestamp('approved_at')->nullable();

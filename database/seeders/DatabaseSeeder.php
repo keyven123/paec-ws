@@ -36,7 +36,7 @@ class DatabaseSeeder extends Seeder
             // VenueSeatNPTheatreSilverSeeder::class,
             // VenueSeatNPTheatreBronzeSeeder::class,
             // VenueSeatNPTheatreBoothSeeder::class,
-            // EventSectionSeeder::class,
+            EventSectionSeeder::class,
             // CustomerSeeder::class,
         ]);
     }

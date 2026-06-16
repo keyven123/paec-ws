@@ -528,6 +528,17 @@ class EventRepository
 
         $amusementSection = EventSection::where('name', EventSection::AMUSEMENT_SECTION)->first();
 
+        if (! $amusementSection) {
+            return tap(new Event(), function (Event $event) {
+                $event->forceFill([
+                    'total_published' => 0,
+                    'total_pending' => 0,
+                    'total_transaction_amount' => 0,
+                    'total_tickets_sold' => 0,
+                ]);
+            });
+        }
+
         $organizationUuidParam = $organizationUuid ?? null;
         $amusementUuidParam = $amusementSection->uuid;
 
