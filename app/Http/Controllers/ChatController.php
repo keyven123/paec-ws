@@ -57,12 +57,10 @@ class ChatController extends Controller
 
         if ($request->hasFile('file')) {
             $file = $request->file('file');
-            // The 'local' disk stores files in storage/app/private, which is not
-            // web-accessible. Force the 'public' disk for attachments so they get
-            // a plain APP_URL/storage/… URL that the browser can open directly.
-            $defaultDisk = config('filesystems.default');
-            $attachmentDisk = $defaultDisk === 'local' ? 'public' : $defaultDisk;
-            $upload = $this->uploadRepository->create(['file' => $file, 'disk' => $attachmentDisk]);
+            $upload = $this->uploadRepository->create([
+                'file' => $file,
+                'collection' => 'attachment',
+            ]);
             $attachmentUuid = $upload->uuid;
             $attachmentName = $file->getClientOriginalName();
         }

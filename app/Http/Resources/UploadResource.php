@@ -21,6 +21,7 @@ class UploadResource extends JsonResource
             'extension' => $this->extension,
             'disk' => $this->disk,
             'path' => $this->path,
+            'collection' => $this->collection,
             'url' => $this->url,
             'size_bytes' => $this->size_bytes,
             'width' => $this->width,

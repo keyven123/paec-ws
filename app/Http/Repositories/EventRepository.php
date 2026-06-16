@@ -66,9 +66,9 @@ class EventRepository
             $events = $events->where('event_section_uuid', $section->uuid);
 
             if ($section->name === EventSection::FEATURED_SECTION) {
-                // Events belong to the featured section by FK; do not require is_featured=true
-                // (that hid most catalog rows when admins only set section, not the flag).
-                $events = $events->orderByDesc('is_featured')->orderBy('featured_order');
+                $events = $events->orderBy('featured_order')->orderBy('created_at', 'desc');
+
+                return $events;
             }
 
             if ($section->name === EventSection::UPCOMING_SECTION) {
@@ -938,17 +938,29 @@ class EventRepository
     public function arrangeFeaturedEvents(array $payload): void
     {
         DB::beginTransaction();
-        $eventSection = EventSection::where('name', EventSection::FEATURED_SECTION)->first();
-        $this->event->where('event_section_uuid', $eventSection->uuid)
-            ->update(['is_featured' => false]);
+
+        $featuredSection = EventSection::where('name', EventSection::FEATURED_SECTION)->firstOrFail();
+        $amusementSection = EventSection::where('name', EventSection::AMUSEMENT_SECTION)->firstOrFail();
+
+        // Demote all currently featured activities back to the amusements catalog.
+        $this->event->query()
+            ->where('is_featured', true)
+            ->update([
+                'is_featured' => false,
+                'featured_order' => null,
+                'event_section_uuid' => $amusementSection->uuid,
+            ]);
+
         foreach ($payload['events'] as $order) {
             $event = $this->fetchOrThrow('uuid', $order['uuid']);
             $event->update([
-                'event_section_uuid' => $eventSection->uuid,
-                'featured_order' => $order['featured_order'] ?? null,
+                'event_section_uuid' => $featuredSection->uuid,
+                'featured_order' => $order['featured_order'],
                 'is_featured' => true,
+                'is_request_for_featured' => false,
             ]);
         }
+
         DB::commit();
     }
 

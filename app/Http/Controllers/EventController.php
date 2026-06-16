@@ -157,10 +157,16 @@ class EventController extends Controller
         $featuredImage = $request->file('featured_image');
         $eventShowcase = $request->file('event_showcase');
         if (!empty($portraitImage)) {
-            $portrait = $this->uploadRepository->create(['file' => $portraitImage]);
+            $portrait = $this->uploadRepository->create([
+                'file' => $portraitImage,
+                'collection' => 'portrait',
+            ]);
         }
         if (!empty($featuredImage)) {
-            $featured = $this->uploadRepository->create(['file' => $featuredImage]);
+            $featured = $this->uploadRepository->create([
+                'file' => $featuredImage,
+                'collection' => 'featured',
+            ]);
         }
         $showcaseUploads = [];
         if (!empty($eventShowcase)) {
@@ -168,6 +174,7 @@ class EventController extends Controller
             foreach ($showcaseFiles as $index => $showcase) {
                 $upload = $this->uploadRepository->create([
                     'file' => $showcase,
+                    'collection' => 'showcase',
                     'order_number' => $index + 1,
                 ]);
                 $showcaseUploads[] = $upload->uuid;
@@ -194,6 +201,12 @@ class EventController extends Controller
         }
         $event = $this->eventRepository->create($payload);
         EventLocationService::ensureDefaultLocation($event->fresh());
+        $this->uploadRepository->attachEventUploads(
+            $event,
+            $portrait ?? null,
+            $featured ?? null,
+            $showcaseUploads,
+        );
 
         $schedules = $payload['schedules'] ?? [];
         if (!empty($schedules)) {
@@ -383,12 +396,22 @@ class EventController extends Controller
             $featuredImage = $request->file('featured_image');
             $eventShowcase = $request->file('event_showcase');
 
+            $portrait = null;
+            $featured = null;
+            $newShowcaseUploads = [];
+
             if (!empty($portraitImage)) {
-                $portrait = $this->uploadRepository->create(['file' => $portraitImage]);
+                $portrait = $this->uploadRepository->create([
+                    'file' => $portraitImage,
+                    'collection' => 'portrait',
+                ]);
                 $payload['portrait_image_uuid'] = $portrait->uuid;
             }
             if (!empty($featuredImage)) {
-                $featured = $this->uploadRepository->create(['file' => $featuredImage]);
+                $featured = $this->uploadRepository->create([
+                    'file' => $featuredImage,
+                    'collection' => 'featured',
+                ]);
                 $payload['featured_image_uuid'] = $featured->uuid;
             }
             if (!empty($eventShowcase)) {
@@ -397,10 +420,12 @@ class EventController extends Controller
                 foreach ($showcaseFiles as $index => $showcase) {
                     $upload = $this->uploadRepository->create([
                         'file' => $showcase,
+                        'collection' => 'showcase',
                         'order_number' => $index + 1,
                     ]);
                     $showcaseUploads[] = $upload->uuid;
                 }
+                $newShowcaseUploads = $showcaseUploads;
                 $existingShowcase = $event->event_showcase;
                 if (is_string($existingShowcase)) {
                     $existingShowcase = json_decode($existingShowcase, true) ?? [];
@@ -414,6 +439,12 @@ class EventController extends Controller
             }
 
             $this->eventRepository->update($event, $payload);
+            $this->uploadRepository->attachEventUploads(
+                $event->fresh(),
+                $portrait,
+                $featured,
+                $newShowcaseUploads,
+            );
             DB::commit();
 
             // Clear public events cache

@@ -13,7 +13,19 @@ return [
     |
     */
 
-    'default' => env('FILESYSTEM_DISK', 'local'),
+    'default' => (function () {
+        $configured = env('FILESYSTEM_DISK');
+
+        if (filled($configured)) {
+            return $configured;
+        }
+
+        return filled(env('DO_SPACES_KEY'))
+            && filled(env('DO_SPACES_SECRET'))
+            && filled(env('DO_SPACES_BUCKET'))
+            ? 'digitalocean'
+            : 'local';
+    })(),
 
     /*
     |--------------------------------------------------------------------------

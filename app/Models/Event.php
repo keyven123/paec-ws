@@ -455,6 +455,11 @@ class Event extends Model implements Blockable
         return $this->belongsTo(Upload::class, 'featured_image_uuid', 'uuid');
     }
 
+    public function uploads(): MorphMany
+    {
+        return $this->morphMany(Upload::class, 'uploadable', 'uploadable_type', 'uploadable_uuid', 'uuid');
+    }
+
     public function category()
     {
         return $this->belongsTo(Category::class);

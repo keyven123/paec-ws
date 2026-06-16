@@ -410,11 +410,9 @@ class VenueListingController extends Controller
             $inquiry = $this->venueInquiryRepository->fetchOrThrow($inquiryUuid);
             $validated = $request->validated();
 
-            $defaultDisk = config('filesystems.default');
-            $attachmentDisk = $defaultDisk === 'local' ? 'public' : $defaultDisk;
             $upload = $this->uploadRepository->create([
                 'file' => $request->file('file'),
-                'disk' => $attachmentDisk,
+                'collection' => 'proposal',
             ]);
 
             $inquiry = $this->workflowService->sendProposal($inquiry, [

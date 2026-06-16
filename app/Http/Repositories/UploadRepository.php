@@ -4,7 +4,9 @@ namespace App\Http\Repositories;
 
 use App\Exceptions\NoResourceFoundException;
 use App\Helpers\GeneralHelper;
+use App\Models\Event;
 use App\Models\Upload;
+use App\Support\UploadDisk;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Intervention\Image\ImageManager;
@@ -35,7 +37,7 @@ class UploadRepository
     {
         $file = $payload['file'];
         $uuid = (string) Str::uuid();
-        $disk = $payload['disk'] ?? config('filesystems.default');
+        $disk = $payload['disk'] ?? UploadDisk::forUploads();
 
         $ext = strtolower($file->getClientOriginalExtension());
         $mime = $file->getClientMimeType();
@@ -46,7 +48,11 @@ class UploadRepository
         // it stucks at uploading status.
 
         $path = "uploads/" . now()->format('Y/m') . "/{$uuid}.{$ext}";
-        Storage::disk($disk)->put($path, file_get_contents($file->getRealPath()), 'public');
+        Storage::disk($disk)->put(
+            $path,
+            file_get_contents($file->getRealPath()),
+            ['visibility' => 'public'],
+        );
 
         // Try to read dimensions if image
         $width = $height = null;
@@ -66,6 +72,7 @@ class UploadRepository
             'extension' => $ext,
             'disk' => $disk,
             'path' => $path,
+            'collection' => $payload['collection'] ?? null,
             'size_bytes' => $file->getSize(),
             'width' => $width,
             'height' => $height,
@@ -80,13 +87,17 @@ class UploadRepository
         DB::beginTransaction();
         $file = $payload['file'];
         $uuid = (string) Str::uuid();
-        $disk = $payload['disk'] ?? config('filesystems.default');
+        $disk = $payload['disk'] ?? UploadDisk::forUploads();
         $ext = strtolower($file->getClientOriginalExtension());
         $mime = $file->getClientMimeType();
         $type = $payload['type'] ?? $this->detectType($mime, $ext);
 
         $path = "uploads/" . now()->format('Y/m') . "/{$uuid}.{$ext}";
-        Storage::disk($disk)->put($path, file_get_contents($file->getRealPath()), 'public');
+        Storage::disk($disk)->put(
+            $path,
+            file_get_contents($file->getRealPath()),
+            ['visibility' => 'public'],
+        );
 
         $width = $height = null;
         if ($type === 'image') {
@@ -105,6 +116,7 @@ class UploadRepository
             'extension' => $ext,
             'disk' => $disk,
             'path' => $path,
+            'collection' => $payload['category'] ?? $payload['collection'] ?? null,
             'size_bytes' => $file->getSize(),
             'width' => $width,
             'height' => $height,
@@ -117,6 +129,42 @@ class UploadRepository
 
         DB::commit();
         return $upload;
+    }
+
+    /**
+     * Link event image uploads to their morph collection after the event row exists.
+     *
+     * @param  list<string>  $showcaseUploadUuids
+     */
+    public function attachEventUploads(
+        Event $event,
+        ?Upload $portrait = null,
+        ?Upload $featured = null,
+        array $showcaseUploadUuids = [],
+    ): void {
+        if ($portrait) {
+            $this->attachUploadToModel($portrait, $event, 'portrait');
+        }
+
+        if ($featured) {
+            $this->attachUploadToModel($featured, $event, 'featured');
+        }
+
+        foreach ($showcaseUploadUuids as $uploadUuid) {
+            $upload = $this->upload->newQuery()->where('uuid', $uploadUuid)->first();
+            if ($upload) {
+                $this->attachUploadToModel($upload, $event, 'showcase');
+            }
+        }
+    }
+
+    public function attachUploadToModel(Upload $upload, Model $model, string $collection): void
+    {
+        $upload->update([
+            'uploadable_type' => get_class($model),
+            'uploadable_uuid' => $model->uuid,
+            'collection' => $collection,
+        ]);
     }
 
     // public function uploadVideo(array $payload): Upload
