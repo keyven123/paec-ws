@@ -63,7 +63,8 @@ class EventRepository
                 return $events->whereRaw('1 = 0');
             }
 
-            $events = $events->where('event_section_uuid', $section->uuid);
+            $sectionUuids = $this->resolveCatalogSectionUuids($filters['type']);
+            $events = $events->whereIn('event_section_uuid', $sectionUuids);
 
             if ($section->name === EventSection::FEATURED_SECTION) {
                 $events = $events->orderBy('featured_order')->orderBy('created_at', 'desc');
@@ -82,10 +83,6 @@ class EventRepository
             if ($section->name === EventSection::NEW_EVENT_SECTION) {
                 $events = $events->newEvent();
             }
-
-            if ($section->name === EventSection::AMUSEMENT_SECTION) {
-                $events = $events->amusement();
-            }
         }
         $events->orderBy($filters['sort_by'] ?? 'created_at', $filters['sort'] ?? 'desc');
 
@@ -99,17 +96,17 @@ class EventRepository
      */
     public function getBrowseByCityCities(string $type = EventSection::AMUSEMENT_SECTION): array
     {
-        $section = EventSection::where('name', $type)->first();
-        if (!$section) {
+        $sectionUuids = $this->resolveCatalogSectionUuids($type);
+        if ($sectionUuids === []) {
             return [];
         }
 
         return EventLocation::query()
             ->where('is_active', true)
-            ->whereHas('event', function ($query) use ($section) {
+            ->whereHas('event', function ($query) use ($sectionUuids) {
                 $query->published()
                     ->active()
-                    ->where('event_section_uuid', $section->uuid)
+                    ->whereIn('event_section_uuid', $sectionUuids)
                     ->where('event_config', '!=', Event::EVENT_CONFIGS['PRIVATE_EVENT']);
             })
             ->orderBy('city')
@@ -129,17 +126,17 @@ class EventRepository
         $limit = (int) ($filters['limit'] ?? 12);
         $city = $filters['city'] ?? null;
 
-        $section = EventSection::where('name', $type)->first();
-        if (!$section) {
+        $sectionUuids = $this->resolveCatalogSectionUuids($type);
+        if ($sectionUuids === []) {
             return collect();
         }
 
         $query = EventLocation::query()
             ->where('is_active', true)
-            ->whereHas('event', function ($builder) use ($section) {
+            ->whereHas('event', function ($builder) use ($sectionUuids) {
                 $builder->published()
                     ->active()
-                    ->where('event_section_uuid', $section->uuid)
+                    ->whereIn('event_section_uuid', $sectionUuids)
                     ->where('event_config', '!=', Event::EVENT_CONFIGS['PRIVATE_EVENT']);
             })
             ->with([
@@ -526,9 +523,9 @@ class EventRepository
             $organizationUuid = auth('admin')->user()->organization_uuid;
         }
 
-        $amusementSection = EventSection::where('name', EventSection::AMUSEMENT_SECTION)->first();
+        $catalogUuids = EventSection::catalogSectionUuids();
 
-        if (! $amusementSection) {
+        if ($catalogUuids === []) {
             return tap(new Event(), function (Event $event) {
                 $event->forceFill([
                     'total_published' => 0,
@@ -540,10 +537,10 @@ class EventRepository
         }
 
         $organizationUuidParam = $organizationUuid ?? null;
-        $amusementUuidParam = $amusementSection->uuid;
+        $sectionPlaceholders = implode(',', array_fill(0, count($catalogUuids), '?'));
 
         $query = $this->event->filters($filters)
-            ->where('event_section_uuid', $amusementUuidParam);
+            ->whereIn('event_section_uuid', $catalogUuids);
 
         return OrganizationHelper::tenantOrganization($query)
             ->when($organizationUuid, fn ($q) => $q->where('organization_uuid', $organizationUuid))
@@ -557,7 +554,7 @@ class EventRepository
                     WHERE transactions.payment_status IN ('paid', 'paid-nr')
                     AND transactions.event_uuid IN (
                         SELECT uuid FROM events
-                        WHERE event_section_uuid = ?
+                        WHERE event_section_uuid IN ($sectionPlaceholders)
                         AND (? IS NULL OR events.organization_uuid = ?)
                     )
                 ) AS total_transaction_amount,
@@ -570,18 +567,15 @@ class EventRepository
                         SELECT uuid FROM transactions
                         WHERE transactions.event_uuid IN (
                             SELECT uuid FROM events
-                            WHERE event_section_uuid = ?
+                            WHERE event_section_uuid IN ($sectionPlaceholders)
                             AND (? IS NULL OR events.organization_uuid = ?)
                         )
                     )
                 ) AS total_tickets_sold
             ", [
-                // For subquery #1
-                $amusementUuidParam,
+                ...$catalogUuids,
                 $organizationUuidParam, $organizationUuidParam,
-
-                // For subquery #2
-                $amusementUuidParam,
+                ...$catalogUuids,
                 $organizationUuidParam, $organizationUuidParam,
             ])
             ->first();
@@ -1162,5 +1156,25 @@ class EventRepository
     private function transactionIsComplementaryTickets(Transaction $transaction): bool
     {
         return $transaction->tickets->contains('type', 'complementary');
+    }
+
+    /**
+     * Marketplace catalog sections. Featured activities remain visible in the
+     * amusements catalog even after they are promoted to the featured section.
+     *
+     * @return array<int, string>
+     */
+    private function resolveCatalogSectionUuids(string $type): array
+    {
+        $section = EventSection::where('name', $type)->first();
+        if (!$section) {
+            return [];
+        }
+
+        if ($type !== EventSection::AMUSEMENT_SECTION) {
+            return [$section->uuid];
+        }
+
+        return EventSection::catalogSectionUuids();
     }
 }

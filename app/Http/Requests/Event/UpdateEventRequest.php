@@ -8,6 +8,7 @@ use App\Models\Event;
 use App\Models\EventSection;
 use App\Services\PaecOrganizationService;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Validation\Rule;
 
 class UpdateEventRequest extends FormRequest
@@ -20,6 +21,7 @@ class UpdateEventRequest extends FormRequest
      */
     public function rules(): array
     {
+        $superAdmin = Auth::user('admin');
         return [
             'uuid' => [
                 'required',
@@ -34,7 +36,14 @@ class UpdateEventRequest extends FormRequest
                 Rule::requiredIf(function () {
                     return $this->input('event_type') != Event::EVENT_TYPES['DAILY'];
                 })],
-            'organization_uuid' => ['nullable', 'uuid', 'exists:organizations,uuid'],
+            'organization_uuid' => [
+                'nullable',
+                'uuid',
+                'exists:organizations,uuid',
+                Rule::requiredIf(function () use ($superAdmin) {
+                    return $superAdmin && $superAdmin->role && $superAdmin->role->is_admin == true;
+                })
+            ],
             'category_uuid' => ['required', 'uuid', 'exists:categories,uuid'],
             'event_section_uuid' => [
                 'nullable',
@@ -90,25 +99,24 @@ class UpdateEventRequest extends FormRequest
     protected function prepareForValidation(): void
     {
         $this->merge([
-            'uuid' => $this->route('uuid'),
+            'uuid' => $this->route('uuid')
         ]);
+
+        $this->prepareMetaPixelFieldsForValidation();
 
         if (!$this->filled('organization_uuid')) {
             $eventUuid = $this->route('uuid');
             $existingOrganizationUuid = $eventUuid
-                ? Event::query()->where('uuid', $eventUuid)->value('organization_uuid')
+                ? Event::where('uuid', $eventUuid)->value('organization_uuid')
                 : null;
-
             $organizationUuid = $existingOrganizationUuid
-                ?: auth('admin')->user()?->organization_uuid
-                ?: PaecOrganizationService::defaultOrganizationUuid();
+                ?? auth('admin')->user()?->organization_uuid
+                ?? PaecOrganizationService::defaultOrganizationUuid();
 
             if ($organizationUuid) {
                 $this->merge(['organization_uuid' => $organizationUuid]);
             }
         }
-
-        $this->prepareMetaPixelFieldsForValidation();
 
         // Decode other_info if it's sent as a JSON string
         if ($this->has('other_info') && is_string($this->input('other_info'))) {

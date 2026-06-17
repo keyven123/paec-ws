@@ -261,11 +261,18 @@ class Event extends Model implements Blockable
         }
 
         if (isset($filters['event_section_type'])) {
-            $query = $query->whereHas('eventSection', function (Builder $q) use ($filters) {
-                $q->where('name', $filters['event_section_type']);
-            })->when($filters['event_section_type'] === EventSection::FEATURED_SECTION, function (Builder $q) {
-                $q->where('is_featured', true);
-            });
+            if ($filters['event_section_type'] === EventSection::AMUSEMENT_SECTION) {
+                $catalogUuids = EventSection::catalogSectionUuids();
+                $query = $catalogUuids === []
+                    ? $query->whereRaw('1 = 0')
+                    : $query->whereIn('event_section_uuid', $catalogUuids);
+            } else {
+                $query = $query->whereHas('eventSection', function (Builder $q) use ($filters) {
+                    $q->where('name', $filters['event_section_type']);
+                })->when($filters['event_section_type'] === EventSection::FEATURED_SECTION, function (Builder $q) {
+                    $q->where('is_featured', true);
+                });
+            }
         }
 
         if (isset($filters['event_section_types'])) {

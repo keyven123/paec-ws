@@ -8,8 +8,6 @@ use Database\Seeders\CustomerRolePermissionSeeder;
 use Database\Seeders\CustomerSeeder;
 use Database\Seeders\DatasetSeeder;
 use Database\Seeders\EventSectionSeeder;
-use Database\Seeders\OrganizerRolePermissionSeeder;
-use Database\Seeders\PaecAdminUserSeeder;
 use Database\Seeders\PaecOrganizationSeeder;
 use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RoleSeeder;
@@ -26,8 +24,6 @@ trait AuthenticatesApiUsers
 {
     protected ?string $adminToken = null;
 
-    protected ?string $superAdminToken = null;
-
     protected ?string $customerToken = null;
 
     protected function seedApiDatabase(): void
@@ -37,12 +33,10 @@ trait AuthenticatesApiUsers
             PermissionSeeder::class,
             SuperadminRolePermissionSeeder::class,
             AdminRolePermissionSeeder::class,
-            OrganizerRolePermissionSeeder::class,
             CustomerRolePermissionSeeder::class,
             SuperAdminUserSeeder::class,
             CustomerSeeder::class,
             PaecOrganizationSeeder::class,
-            PaecAdminUserSeeder::class,
             CategorySeeder::class,
             EventSectionSeeder::class,
             DatasetSeeder::class,
@@ -64,23 +58,6 @@ trait AuthenticatesApiUsers
         $this->adminToken = $response->json('access_token');
 
         return $this->adminToken;
-    }
-
-    protected function authenticateSuperAdmin(): string
-    {
-        if ($this->superAdminToken) {
-            return $this->superAdminToken;
-        }
-
-        $response = $this->postJson('/api/v1/admin/login', [
-            'email' => 'admin@ticketoc.com',
-            'password' => '123ticketoc$$$',
-        ]);
-
-        $response->assertOk();
-        $this->superAdminToken = $response->json('access_token');
-
-        return $this->superAdminToken;
     }
 
     protected function authenticateCustomer(): string

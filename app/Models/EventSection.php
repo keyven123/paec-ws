@@ -65,6 +65,20 @@ class EventSection extends Model
     const TRAVEL_SECTION = 'travel';
 
     /**
+     * PAEC fun-activity catalog sections. Featured activities stay in admin and
+     * marketplace catalogs after promotion to the featured section.
+     *
+     * @return array<int, string>
+     */
+    public static function catalogSectionUuids(): array
+    {
+        return static::query()
+            ->whereIn('name', [self::AMUSEMENT_SECTION, self::FEATURED_SECTION])
+            ->pluck('uuid')
+            ->all();
+    }
+
+    /**
      * Scope for filtering records
      * @param Builder $query
      * @param array|null $filters

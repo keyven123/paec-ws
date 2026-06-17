@@ -49,7 +49,7 @@ class AdminApiTest extends TestCase
 
     public function test_admin_me_returns_authenticated_profile(): void
     {
-        $this->withToken($this->authenticateAdmin())
+        $this->withAdmin()
             ->getJson('/api/v1/admin/me')
             ->assertOk()
             ->assertJsonPath('data.admin_user.email', 'admin@paec.com');
@@ -91,7 +91,7 @@ class AdminApiTest extends TestCase
 
     public function test_admin_events_module(): void
     {
-        $token = $this->authenticateSuperAdmin();
+        $token = $this->authenticateAdmin();
 
         $this->withToken($token)->getJson('/api/v1/events')->assertOk();
         $this->withToken($token)->getJson('/api/v1/events/stats')->assertOk();
@@ -181,7 +181,7 @@ class AdminApiTest extends TestCase
 
     public function test_all_admin_get_routes_respond_without_server_error(): void
     {
-        $token = $this->authenticateSuperAdmin();
+        $token = $this->authenticateAdmin();
 
         $routes = ApiRouteInspector::routes('GET', $this->routePlaceholders)
             ->filter(fn (array $route) => $route['auth'] === 'admin');
@@ -218,7 +218,7 @@ class AdminApiTest extends TestCase
 
     public function test_all_admin_mutation_routes_do_not_server_error_when_authenticated(): void
     {
-        $token = $this->authenticateSuperAdmin();
+        $token = $this->authenticateAdmin();
 
         $routes = ApiRouteInspector::routes(null, $this->routePlaceholders)
             ->filter(fn (array $route) => in_array($route['method'], ['POST', 'PUT', 'PATCH', 'DELETE'], true))
@@ -240,6 +240,6 @@ class AdminApiTest extends TestCase
 
     private function withAdmin(): static
     {
-        return $this->withToken($this->authenticateSuperAdmin());
+        return $this->withToken($this->authenticateAdmin());
     }
 }

@@ -392,12 +392,6 @@ class EventController extends Controller
             $payload['slug'] = GeneralHelper::generateSlug($payload['slug']);
             $event = $this->eventRepository->fetchOrThrow('uuid', $uuid);
 
-            if (!isset($payload['organization_uuid']) || empty($payload['organization_uuid'])) {
-                $payload['organization_uuid'] = $event->organization_uuid
-                    ?? auth('admin')->user()->organization_uuid
-                    ?? PaecOrganizationService::defaultOrganizationUuid();
-            }
-
             $portraitImage = $request->file('portrait_image');
             $featuredImage = $request->file('featured_image');
             $eventShowcase = $request->file('event_showcase');

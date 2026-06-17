@@ -22,11 +22,13 @@ class SuperAdminUserSeeder extends Seeder
         $role = Role::whereCode(GeneralConstants::ROLES['SUPER_ADMIN']['name'])->first();
 
         if ($role) {
+            AdminUser::where('email', 'admin@ticketoc.com')->delete();
+
             AdminUser::updateOrCreate(
-                ['email' => 'admin@ticketoc.com'],
+                ['email' => 'admin@paec.com'],
                 [
                     'role_uuid' => $role->uuid,
-                    'password' => '123ticketoc$$$',
+                    'password' => 'P@ec2026!!',
                     'email_verified_at' => now(),
                     'first_name' => 'Super',
                     'last_name' => 'Admin',
