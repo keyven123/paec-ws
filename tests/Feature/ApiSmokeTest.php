@@ -57,7 +57,7 @@ class ApiSmokeTest extends TestCase
 
     public function test_admin_protected_endpoints(): void
     {
-        $token = $this->authenticateAdmin();
+        $token = $this->authenticateSuperAdmin();
 
         $this->withToken($token)->getJson('/api/v1/admin/dashboard/stats')->assertOk();
         $this->withToken($token)->getJson('/api/v1/events')->assertOk();

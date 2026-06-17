@@ -14,6 +14,8 @@ use Database\Seeders\AdminRolePermissionSeeder;
 use Database\Seeders\CategorySeeder;
 use Database\Seeders\CustomerRolePermissionSeeder;
 use Database\Seeders\CustomerSeeder;
+use Database\Seeders\OrganizerRolePermissionSeeder;
+use Database\Seeders\PaecAdminUserSeeder;
 use Database\Seeders\PaecOrganizationSeeder;
 use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RoleSeeder;
@@ -40,10 +42,12 @@ class EventLocationApiTest extends TestCase
             PermissionSeeder::class,
             SuperadminRolePermissionSeeder::class,
             AdminRolePermissionSeeder::class,
+            OrganizerRolePermissionSeeder::class,
             CustomerRolePermissionSeeder::class,
             SuperAdminUserSeeder::class,
             CustomerSeeder::class,
             PaecOrganizationSeeder::class,
+            PaecAdminUserSeeder::class,
             CategorySeeder::class,
         ]);
     }

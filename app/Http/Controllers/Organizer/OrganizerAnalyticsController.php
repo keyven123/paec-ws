@@ -9,6 +9,7 @@ use App\Http\Requests\Analytics\TransactionRevenueSeriesRequest;
 use App\Models\Event;
 use App\Models\Transaction;
 use App\Services\Organizer\OrganizerAccountingBalanceService;
+use App\Services\Organizer\OrganizerContextService;
 use App\Services\TicketPurchasePricingService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Relations\Relation;
@@ -21,6 +22,7 @@ class OrganizerAnalyticsController extends Controller
     public function __construct(
         protected AnalyticsRepository $analyticsRepository,
         protected OrganizerAccountingBalanceService $accountingBalanceService,
+        protected OrganizerContextService $organizerContext,
     ) {
     }
 
@@ -455,13 +457,7 @@ class OrganizerAnalyticsController extends Controller
      */
     public function transactionRevenueSeries(TransactionRevenueSeriesRequest $request): JsonResponse
     {
-        $organizationUuid = auth('admin')->user()?->organization_uuid;
-        if (!$organizationUuid) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Organization context required.',
-            ], 422);
-        }
+        $organizationUuid = $this->organizerContext->organizationUuidOrAbort();
 
         $validated = $request->validated();
 
@@ -482,13 +478,7 @@ class OrganizerAnalyticsController extends Controller
 
     public function exportTransactionRevenueSeries(TransactionRevenueSeriesRequest $request): \Illuminate\Http\Response|\Illuminate\Http\JsonResponse
     {
-        $organizationUuid = auth('admin')->user()?->organization_uuid;
-        if (! $organizationUuid) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Organization context required.',
-            ], 422);
-        }
+        $organizationUuid = $this->organizerContext->organizationUuidOrAbort();
 
         $validated = $request->validated();
 
@@ -516,13 +506,7 @@ class OrganizerAnalyticsController extends Controller
      */
     public function successfulFailedTransactionCountsSeries(TransactionRevenueSeriesRequest $request): JsonResponse
     {
-        $organizationUuid = auth('admin')->user()?->organization_uuid;
-        if (!$organizationUuid) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Organization context required.',
-            ], 422);
-        }
+        $organizationUuid = $this->organizerContext->organizationUuidOrAbort();
 
         $validated = $request->validated();
 
@@ -545,13 +529,7 @@ class OrganizerAnalyticsController extends Controller
      */
     public function revenuePerEventSeries(TransactionRevenueSeriesRequest $request): JsonResponse
     {
-        $organizationUuid = auth('admin')->user()?->organization_uuid;
-        if (!$organizationUuid) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Organization context required.',
-            ], 422);
-        }
+        $organizationUuid = $this->organizerContext->organizationUuidOrAbort();
 
         $validated = $request->validated();
 
@@ -566,6 +544,38 @@ class OrganizerAnalyticsController extends Controller
         return response()->json([
             'success' => true,
             'message' => 'Revenue per event series',
+            'data' => $data,
+        ]);
+    }
+
+    /**
+     * Pie chart: customers split into New vs Repeat based on paid transaction count.
+     */
+    public function customerTypePie(): JsonResponse
+    {
+        $organizationUuid = $this->organizerContext->organizationUuidOrAbort();
+
+        $data = $this->analyticsRepository->getNewVsRepeatCustomerCounts($organizationUuid);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Customer type totals',
+            'data' => $data,
+        ]);
+    }
+
+    /**
+     * Pie chart: overall successful vs failed event transactions.
+     */
+    public function successfulFailedTransactionPie(): JsonResponse
+    {
+        $organizationUuid = $this->organizerContext->organizationUuidOrAbort();
+
+        $data = $this->analyticsRepository->getSuccessfulFailedTransactionTotals($organizationUuid);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Successful vs failed transaction totals',
             'data' => $data,
         ]);
     }

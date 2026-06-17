@@ -21,6 +21,7 @@ Route::group(['prefix' => 'organizer'], function () {
             Route::get('/upcoming-events', [OrganizerDashboardController::class, 'upcomingEvents'])->middleware('can:organizers-view');
         });
         Route::prefix('accounting')->group(function () {
+            Route::get('/pnl', [OrganizerAccountingController::class, 'pnl'])->middleware('can:organizer-accounting-view');
             Route::get('/events', [OrganizerAccountingController::class, 'events'])->middleware('can:organizer-accounting-view');
             Route::get('/summary', [OrganizerAccountingController::class, 'summary'])->middleware('can:organizer-accounting-view');
             Route::get('/remittance-buckets', [OrganizerAccountingController::class, 'remittanceBuckets'])->middleware('can:organizer-accounting-view');

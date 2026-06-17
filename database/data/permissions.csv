@@ -4,7 +4,7 @@ Organizer Dashboard,organizer-dashboard,Dashboard Module,rx,organizer,Access the
 Analytics,analytics,Intelligence Module,rx,admin,View platform-wide analytics charts and export reports for all organizations.
 Organizer Analytics,organizer-analytics,Intelligence Module,r,organizer,View analytics and performance charts scoped to the merchant partner organization.
 Organizer Accounting,organizer-accounting,Intelligence Module,rw,organizer,"Finance Module: View remittance, payouts, and accounting summaries; submit payout requests."
-Finance,finance,Finance Module,rx,admin,Access the platform finance console for profit and loss and operator remittance tools.
+Finance,finance,Finance Module,rx,shared,Access the platform finance console for profit and loss and operator remittance tools.
 User,users,User Management Module,rwudx,admin,"Manage end-customer accounts: list, create, update, delete, and export customer records."
 Admin Users,admin-users,User Management Module,rwudx,admin,"Manage platform and merchant partner staff accounts, including roles and organization assignment."
 Roles,roles,User Management Module,rwudx,admin,Create and configure roles plus assign module permissions for admin and merchant partner users.

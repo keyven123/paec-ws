@@ -17,6 +17,7 @@ Route::prefix('analytics')->group(function () {
     Route::get('/revenue-per-event-series', [AnalyticsController::class, 'revenuePerEventSeries'])->middleware('can:analytics-view');
     Route::get('/revenue-by-event-pie', [AnalyticsController::class, 'revenueByEventPie'])->middleware('can:analytics-view');
     Route::get('/customer-type-pie', [AnalyticsController::class, 'customerTypePie'])->middleware('can:analytics-view');
+    Route::get('/successful-failed-transaction-pie', [AnalyticsController::class, 'successfulFailedTransactionPie'])->middleware('can:analytics-view');
 
     Route::prefix('organizer')->group(function () {
         Route::get('/stats', [OrganizerAnalyticsController::class, 'stats'])->middleware('can:organizer-analytics-view');
@@ -26,5 +27,7 @@ Route::prefix('analytics')->group(function () {
         Route::get('/transaction-revenue-series/export', [OrganizerAnalyticsController::class, 'exportTransactionRevenueSeries'])->middleware('can:organizer-analytics-view');
         Route::get('/successful-failed-transaction-counts', [OrganizerAnalyticsController::class, 'successfulFailedTransactionCountsSeries'])->middleware('can:organizer-analytics-view');
         Route::get('/revenue-per-event-series', [OrganizerAnalyticsController::class, 'revenuePerEventSeries'])->middleware('can:organizer-analytics-view');
+        Route::get('/customer-type-pie', [OrganizerAnalyticsController::class, 'customerTypePie'])->middleware('can:organizer-analytics-view');
+        Route::get('/successful-failed-transaction-pie', [OrganizerAnalyticsController::class, 'successfulFailedTransactionPie'])->middleware('can:organizer-analytics-view');
     });
 });

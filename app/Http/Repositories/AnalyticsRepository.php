@@ -1441,4 +1441,29 @@ class AnalyticsRepository
             'repeat_customers' => (int) ($counts->repeat_customers ?? 0),
         ];
     }
+
+    /**
+     * Pie chart: overall successful (paid) vs failed (failed + cancelled) event transactions.
+     *
+     * @return array{successful_count: int, failed_count: int}
+     */
+    public function getSuccessfulFailedTransactionTotals(?string $organizationUuid): array
+    {
+        $paid = Transaction::PAYMENT_STATUS['PAID'];
+        $failed = Transaction::PAYMENT_STATUS['FAILED'];
+        $cancelledPayment = Transaction::PAYMENT_STATUS['CANCELLED'];
+
+        $base = $this->transaction->newQuery()
+            ->eventsOnly()
+            ->whereIn('payment_status', [$paid, $failed, $cancelledPayment]);
+
+        if ($organizationUuid) {
+            $base->where('organization_uuid', $organizationUuid);
+        }
+
+        return [
+            'successful_count' => (clone $base)->where('payment_status', $paid)->count(),
+            'failed_count' => (clone $base)->whereIn('payment_status', [$failed, $cancelledPayment])->count(),
+        ];
+    }
 }

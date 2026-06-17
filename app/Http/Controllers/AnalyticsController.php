@@ -488,6 +488,24 @@ class AnalyticsController extends Controller
         ]);
     }
 
+    /**
+     * Pie chart: overall successful vs failed event transactions.
+     */
+    public function successfulFailedTransactionPie(AnalyticsPieRequest $request): JsonResponse
+    {
+        $validated = $request->validated();
+
+        $data = $this->analyticsRepository->getSuccessfulFailedTransactionTotals(
+            $validated['organization_uuid'] ?? null,
+        );
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Successful vs failed transaction totals',
+            'data' => $data,
+        ]);
+    }
+
     public function cancelledCheckouts(CancelledCheckoutRequest $request): \Illuminate\Http\Response
     {
         $payload = $request->validated();
