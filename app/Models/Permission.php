@@ -63,4 +63,9 @@ class Permission extends Model
     {
         return $isAdmin ? $query->forAdminRole() : $query->forOrganizerRole();
     }
+
+    public function scopeShared(Builder $query): Builder
+    {
+        return $query->where('role_scope', PermissionRoleScope::SHARED);
+    }
 }

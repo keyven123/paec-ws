@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\Permission;
 use App\Services\Organizer\OrganizerPermissionCatalogService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\Concerns\CreatesMerchantPartnerPermissionFixtures;
@@ -54,8 +55,32 @@ class OrganizerPermissionControllerTest extends TestCase
     }
 
     #[\PHPUnit\Framework\Attributes\Test]
-    public function itReturnsOnlyCatalogPermissionsForMerchantPartnerRoleEditor(): void
+    public function itReturnsOnlySharedPermissionsForMerchantPartnerRoleEditor(): void
     {
+        Permission::create([
+            'name' => 'Dashboard',
+            'code' => 'dashboard',
+            'module' => 'Dashboard Module',
+            'available_access' => ['r', 'x'],
+            'role_scope' => 'admin',
+        ]);
+
+        Permission::create([
+            'name' => 'Events',
+            'code' => 'events',
+            'module' => 'Activities Module',
+            'available_access' => ['r', 'w', 'u', 'd', 'e', 'i'],
+            'role_scope' => 'shared',
+        ]);
+
+        Permission::create([
+            'name' => 'Categories',
+            'code' => 'categories',
+            'module' => 'Other Module',
+            'available_access' => ['r', 'w', 'u', 'd', 'x'],
+            'role_scope' => 'shared',
+        ]);
+
         $response = $this->withHeaders($this->authHeaders())
             ->getJson('/api/v1/organizer/permissions');
 
@@ -65,20 +90,31 @@ class OrganizerPermissionControllerTest extends TestCase
             ]);
 
         $codes = collect($response->json('data'))->pluck('code')->all();
-        $catalogCodes = collect(app(OrganizerPermissionCatalogService::class)->getCatalogRows())
-            ->pluck('code')
-            ->all();
 
-        sort($codes);
-        sort($catalogCodes);
-
-        $this->assertSame($catalogCodes, $codes);
+        $this->assertContains('events', $codes);
+        $this->assertContains('categories', $codes);
         $this->assertNotContains('dashboard', $codes);
     }
 
     #[\PHPUnit\Framework\Attributes\Test]
     public function itCapsAvailableAccessUsingOrganizerPermissionsCsv(): void
     {
+        Permission::create([
+            'name' => 'Categories',
+            'code' => 'categories',
+            'module' => 'Other Module',
+            'available_access' => ['r', 'w', 'u', 'd', 'x'],
+            'role_scope' => 'shared',
+        ]);
+
+        Permission::create([
+            'name' => 'Events',
+            'code' => 'events',
+            'module' => 'Activities Module',
+            'available_access' => ['r', 'w', 'u', 'd', 'e', 'i'],
+            'role_scope' => 'shared',
+        ]);
+
         $response = $this->withHeaders($this->authHeaders())
             ->getJson('/api/v1/organizer/permissions');
 

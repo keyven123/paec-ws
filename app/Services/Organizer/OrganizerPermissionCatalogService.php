@@ -3,6 +3,7 @@
 namespace App\Services\Organizer;
 
 use App\Constants\GeneralConstants;
+use App\Constants\PermissionRoleScope;
 use App\Helpers\CsvHelper;
 use App\Models\Permission;
 use Illuminate\Support\Collection;
@@ -62,19 +63,22 @@ class OrganizerPermissionCatalogService
 
     public function isCodeAllowed(string $code): bool
     {
-        return array_key_exists($code, $this->getCatalogByCode());
+        return Permission::query()
+            ->where('code', $code)
+            ->shared()
+            ->exists();
     }
 
     public function isAccessAllowed(string $code, string $accessString): bool
     {
-        $allowed = $this->getCatalogByCode()[$code] ?? '';
+        $allowedLetters = $this->allowedLettersForCode($code);
 
-        if ($allowed === '') {
+        if ($allowedLetters === []) {
             return false;
         }
 
         foreach (str_split($accessString) as $letter) {
-            if (!str_contains($allowed, $letter)) {
+            if (!in_array($letter, $allowedLetters, true)) {
                 return false;
             }
         }
@@ -87,13 +91,24 @@ class OrganizerPermissionCatalogService
      */
     public function allowedLettersForCode(string $code): array
     {
-        $access = $this->getCatalogByCode()[$code] ?? '';
+        $catalogAccess = $this->getCatalogByCode()[$code] ?? '';
 
-        if ($access === '') {
+        if ($catalogAccess !== '') {
+            return $this->orderedAccessLetters($catalogAccess);
+        }
+
+        $permission = Permission::query()
+            ->where('code', $code)
+            ->shared()
+            ->first();
+
+        if (!$permission) {
             return [];
         }
 
-        return $this->orderedAccessLetters($access);
+        $available = $permission->available_access;
+
+        return is_array($available) ? $available : str_split((string) $available);
     }
 
     /**
@@ -102,33 +117,21 @@ class OrganizerPermissionCatalogService
     public function getAssignablePermissions(): Collection
     {
         $catalogByCode = $this->getCatalogByCode();
-        $codes = array_keys($catalogByCode);
 
-        if ($codes === []) {
-            return collect();
-        }
-
-        $permissions = Permission::query()
-            ->whereIn('code', $codes)
+        return Permission::query()
+            ->shared()
             ->orderBy('module')
             ->orderBy('name')
             ->get()
-            ->keyBy('code');
-
-        return collect($catalogByCode)
-            ->map(function (string $access, string $code) use ($permissions): ?Permission {
-                $permission = $permissions->get($code);
-
-                if (!$permission) {
-                    return null;
-                }
-
+            ->map(function (Permission $permission) use ($catalogByCode): Permission {
                 $copy = clone $permission;
-                $copy->available_access = $this->orderedAccessLetters($access);
+
+                if (array_key_exists($permission->code, $catalogByCode)) {
+                    $copy->available_access = $this->orderedAccessLetters($catalogByCode[$permission->code]);
+                }
 
                 return $copy;
             })
-            ->filter()
             ->values();
     }
 

@@ -20,6 +20,7 @@ class DatabaseSeeder extends Seeder
             CustomerRolePermissionSeeder::class,
             SuperAdminUserSeeder::class,
             PaecAdminUserSeeder::class,
+            OrganizerScannerPermissionSeeder::class,
             CustomerSeeder::class,
             CategorySeeder::class,
             DatasetSeeder::class,

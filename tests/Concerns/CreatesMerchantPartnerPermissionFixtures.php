@@ -66,7 +66,7 @@ trait CreatesMerchantPartnerPermissionFixtures
         ], $overrides));
     }
 
-  /**
+    /**
      * Seed Permission rows for every code in organizer_permissions.csv plus one admin-only module.
      *
      * @return array<string, Permission>
@@ -76,27 +76,14 @@ trait CreatesMerchantPartnerPermissionFixtures
         /** @var OrganizerPermissionCatalogService $catalogService */
         $catalogService = app(OrganizerPermissionCatalogService::class);
         $catalogByCode = $catalogService->getCatalogByCode();
-        $organizerOnlyCodes = [
-            'organizer-dashboard',
-            'organizer-analytics',
-            'organizer-accounting',
-        ];
-        $adminScopedCatalogCodes = [
-            'admin-users',
-            'roles',
-        ];
 
         foreach ($catalogByCode as $code => $access) {
-            $roleScope = in_array($code, $organizerOnlyCodes, true)
-                ? 'organizer'
-                : (in_array($code, $adminScopedCatalogCodes, true) ? 'admin' : 'shared');
-
             $this->catalogPermissions[$code] = Permission::create([
                 'name' => ucwords(str_replace('-', ' ', $code)),
                 'code' => $code,
                 'module' => 'Test Module',
                 'available_access' => str_split('rwudxeia'),
-                'role_scope' => $roleScope,
+                'role_scope' => 'shared',
             ]);
         }
 
@@ -121,7 +108,7 @@ trait CreatesMerchantPartnerPermissionFixtures
                 'code' => 'roles',
                 'module' => 'User Management Module',
                 'available_access' => ['r', 'w', 'u', 'd', 'x'],
-                'role_scope' => 'admin',
+                'role_scope' => 'shared',
             ]);
             $this->catalogPermissions['roles'] = $rolesPermission;
         }

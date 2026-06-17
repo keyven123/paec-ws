@@ -37,6 +37,30 @@ class OrganizerPermissionCatalogServiceTest extends TestCase
     #[\PHPUnit\Framework\Attributes\Test]
     public function itIdentifiesAllowedCodesAndAccessLetters(): void
     {
+        Permission::create([
+            'name' => 'Events',
+            'code' => 'events',
+            'module' => 'Activities Module',
+            'available_access' => ['r', 'w', 'u', 'd', 'e', 'i'],
+            'role_scope' => 'shared',
+        ]);
+
+        Permission::create([
+            'name' => 'Categories',
+            'code' => 'categories',
+            'module' => 'Other Module',
+            'available_access' => ['r', 'w', 'u', 'd', 'x'],
+            'role_scope' => 'shared',
+        ]);
+
+        Permission::create([
+            'name' => 'Dashboard',
+            'code' => 'dashboard',
+            'module' => 'Dashboard Module',
+            'available_access' => ['r', 'x'],
+            'role_scope' => 'admin',
+        ]);
+
         $this->assertTrue($this->service->isCodeAllowed('events'));
         $this->assertTrue($this->service->isAccessAllowed('events', 'r'));
         $this->assertTrue($this->service->isAccessAllowed('events', 'rw'));

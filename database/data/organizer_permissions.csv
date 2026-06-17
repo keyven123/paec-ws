@@ -17,6 +17,7 @@ transactions,rx
 organizer-accounting,rw
 promo-codes,rwudx
 admin-users,rwudx
+users,rwudx
 roles,rwudx
 categories,r
 cms,rwud

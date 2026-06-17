@@ -287,4 +287,15 @@ class User extends Authenticatable implements JWTSubject
 
         return $query;
     }
+
+    public function scopeVisibleToOrganizer(Builder $query, string $organizationUuid): Builder
+    {
+        return $query->where(function (Builder $inner) use ($organizationUuid) {
+            $inner->whereHas('tickets', function (Builder $ticketQuery) use ($organizationUuid) {
+                $ticketQuery->where('organization_uuid', $organizationUuid);
+            })->orWhereHas('transactions', function (Builder $transactionQuery) use ($organizationUuid) {
+                $transactionQuery->where('organization_uuid', $organizationUuid);
+            });
+        });
+    }
 }

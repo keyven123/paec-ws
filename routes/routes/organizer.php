@@ -4,6 +4,7 @@ use App\Http\Controllers\Customer\ProfileController;
 use App\Http\Controllers\OrganizationController;
 use App\Http\Controllers\Organizer\OrganizerAccountingController;
 use App\Http\Controllers\Organizer\OrganizerAdminUserController;
+use App\Http\Controllers\Organizer\OrganizerCustomerController;
 use App\Http\Controllers\Organizer\OrganizerDashboardController;
 use App\Http\Controllers\Organizer\OrganizerOrganizationBankController;
 use App\Http\Controllers\Organizer\OrganizerPermissionController;
@@ -50,6 +51,18 @@ Route::group(['prefix' => 'organizer'], function () {
             Route::get('/{uuid}', [OrganizerAdminUserController::class, 'show'])->middleware('can:admin-users-view');
             Route::put('/{uuid}', [OrganizerAdminUserController::class, 'update'])->middleware('can:admin-users-update');
             Route::delete('/{uuid}', [OrganizerAdminUserController::class, 'destroy'])->middleware('can:admin-users-delete');
+        });
+
+        Route::prefix('customers')->group(function () {
+            Route::get('/', [OrganizerCustomerController::class, 'index'])->middleware('can:users-view');
+            Route::get('/export', [OrganizerCustomerController::class, 'export'])->middleware('can:users-execute');
+            Route::post('/', [OrganizerCustomerController::class, 'store'])->middleware('can:users-create');
+            Route::get('/{uuid}', [OrganizerCustomerController::class, 'show'])->middleware('can:users-view');
+            Route::put('/{uuid}', [OrganizerCustomerController::class, 'update'])->middleware('can:users-update');
+            Route::delete('/{uuid}', [OrganizerCustomerController::class, 'destroy'])->middleware('can:users-delete');
+            Route::get('/{uuid}/stats', [OrganizerCustomerController::class, 'stats'])->middleware('can:users-view');
+            Route::get('/{uuid}/recent-activity', [OrganizerCustomerController::class, 'recentActivity'])->middleware('can:users-view');
+            Route::get('/{uuid}/tickets', [OrganizerCustomerController::class, 'tickets'])->middleware('can:users-view');
         });
 
         Route::prefix('roles')->group(function () {

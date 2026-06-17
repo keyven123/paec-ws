@@ -17,7 +17,7 @@ class PermissionController extends Controller
     /**
      * Display a listing of permissions.
      *
-     * Query: role_scope=admin|organizer — limits to permissions assignable for that role type.
+     * Query: role_scope=admin|organizer|shared — limits to permissions assignable for that role type.
      */
     public function index(Request $request): JsonResponse
     {
@@ -29,6 +29,8 @@ class PermissionController extends Controller
             $query->forAdminRole();
         } elseif ($roleScope === PermissionRoleScope::ORGANIZER) {
             $query->forOrganizerRole();
+        } elseif ($roleScope === PermissionRoleScope::SHARED) {
+            $query->shared();
         }
 
         return response()->json([

@@ -4,6 +4,7 @@ namespace App\Services\Organizer;
 
 use App\Models\AdminUser;
 use App\Models\Role;
+use App\Models\User;
 use Illuminate\Http\Exceptions\HttpResponseException;
 use Symfony\Component\HttpFoundation\Response;
 
@@ -88,5 +89,24 @@ class OrganizerContextService
         }
 
         return $role;
+    }
+
+    public function assertCustomerVisibleToOrganizer(string $userUuid): User
+    {
+        $organizationUuid = $this->organizationUuidOrAbort();
+
+        $user = User::query()
+            ->where('uuid', $userUuid)
+            ->visibleToOrganizer($organizationUuid)
+            ->first();
+
+        if (!$user) {
+            throw new HttpResponseException(response()->json([
+                'success' => false,
+                'message' => 'Customer not found.',
+            ], Response::HTTP_NOT_FOUND));
+        }
+
+        return $user;
     }
 }
