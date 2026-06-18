@@ -35,6 +35,20 @@ class UserRepository
             ->orderBy('first_name', 'desc');
     }
 
+    /**
+     * @param string $organizationUuid
+     * @param array $filters
+     * @return Builder
+     */
+    public function getAllForOrganization(string $organizationUuid, array $filters): Builder
+    {
+        return $this->user->query()
+            ->visibleToOrganizer($organizationUuid)
+            ->filters($filters)
+            ->with(['profileImage', 'role'])
+            ->orderBy('first_name', 'desc');
+    }
+
 
     /**
      * Fetch company from ES, throw exception if not found.

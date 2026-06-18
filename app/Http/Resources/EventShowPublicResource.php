@@ -33,7 +33,20 @@ class EventShowPublicResource extends JsonResource
             'portrait_image_uuid' => $this->portrait_image_uuid,
             'featured_image_uuid' => $this->featured_image_uuid,
             'event_config' => $this->event_config,
-            'event_showcase' => $this->event_showcase ? Upload::whereIn('uuid', $this->event_showcase)->select('uuid', 'path', 'disk')->get() : null,
+            'event_showcase' => $this->when($this->event_showcase, function () {
+                $uuids = collect($this->event_showcase);
+
+                return Upload::whereIn('uuid', $uuids)
+                    ->get()
+                    ->sortBy(fn ($upload) => $uuids->search($upload->uuid))
+                    ->values()
+                    ->map(fn ($upload) => [
+                        'uuid' => $upload->uuid,
+                        'path' => $upload->path,
+                        'url' => $upload->url,
+                        'disk' => $upload->disk,
+                    ]);
+            }),
             'event_type' => $this->event_type,
             'schedule_type' => $this->schedule_type,
             'excluded_dates' => $this->excluded_dates,

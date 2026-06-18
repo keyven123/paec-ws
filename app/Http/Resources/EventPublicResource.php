@@ -17,15 +17,17 @@ class EventPublicResource extends JsonResource
     {
         $eventShowcase = null;
         if ($this->event_showcase != null) {
-            $eventShowcase = Upload::whereIn('uuid', $this->event_showcase)->get();
-            $eventShowcase = $eventShowcase->map(function ($upload) {
-                return [
+            $uuids = collect($this->event_showcase);
+            $eventShowcase = Upload::whereIn('uuid', $uuids)
+                ->get()
+                ->sortBy(fn ($upload) => $uuids->search($upload->uuid))
+                ->values()
+                ->map(fn ($upload) => [
                     'uuid' => $upload->uuid,
                     'path' => $upload->path,
                     'url' => $upload->url,
                     'disk' => $upload->disk,
-                ];
-            });
+                ]);
         }
         return [
             'uuid' => $this->uuid,
