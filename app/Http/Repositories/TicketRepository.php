@@ -54,6 +54,13 @@ class TicketRepository
         $this->reactivatePrematurelyExpiredTicketsForUser($userUuid);
         $this->expirePastVisitTicketsForUser($userUuid);
 
+        $table = $this->ticket->getTable();
+        $scheduleDateSql = '(SELECT schedules.date_from'
+            . ' FROM transactions'
+            . ' INNER JOIN schedules ON schedules.uuid = transactions.schedule_uuid'
+            . " WHERE transactions.uuid = {$table}.transaction_uuid"
+            . ' LIMIT 1)';
+
         return $this->ticket->with([
             'transaction',
             'transaction.transactionOrders',
@@ -73,7 +80,11 @@ class TicketRepository
             ->owner()
             ->filters($filters)
             ->notInactive()
-            ->orderBy('created_at', 'desc');
+            // Stable page order: created_at ties (e.g. Event bundles) need schedule date + uuid.
+            ->orderBy("{$table}.created_at", 'desc')
+            ->orderByRaw("CASE WHEN {$scheduleDateSql} IS NULL THEN 1 ELSE 0 END")
+            ->orderByRaw("{$scheduleDateSql} DESC")
+            ->orderBy("{$table}.uuid", 'desc');
     }
 
     public function expirePastVisitTicketsForUser(string $userUuid): int

@@ -23,10 +23,14 @@ use Illuminate\Support\Facades\Route;
 
 Route::get('/', function () {
     return response()->json([
+        'ok' => true,
         'type' => 'api',
+        'service' => 'paec-api',
         'name' => 'PAEC',
         'version' => '1.0.0',
         'description' => 'PAEC API',
+        'health' => url('/api/health'),
+        'v1' => url('/api/v1'),
     ]);
 });
 
@@ -38,14 +42,30 @@ Route::get('/health', function () {
         $dbStatus = 'disconnected';
     }
 
+    $ok = $dbStatus === 'connected';
+
     return response()->json([
-        'status' => $dbStatus === 'connected' ? 'ok' : 'degraded',
+        'ok' => $ok,
+        'service' => 'paec-api',
+        'status' => $ok ? 'ok' : 'degraded',
+        'app' => config('app.name'),
+        'env' => config('app.env'),
         'database' => $dbStatus,
         'timestamp' => now()->toIso8601String(),
-    ], $dbStatus === 'connected' ? 200 : 503);
+        'php' => PHP_VERSION,
+    ], $ok ? 200 : 503);
 });
 
 Route::prefix('v1')->group(function () {
+    Route::get('/', function () {
+        return response()->json([
+            'ok' => true,
+            'service' => 'paec-api',
+            'version' => 'v1',
+            'health' => url('/api/health'),
+        ]);
+    });
+
     Route::get('/auth/google/redirect', [SocialAuthController::class, 'googleRedirect']);
     Route::get('/auth/google/callback', [SocialAuthController::class, 'googleCallback']);
     Route::get('/auth/facebook/redirect', [SocialAuthController::class, 'facebookRedirect']);

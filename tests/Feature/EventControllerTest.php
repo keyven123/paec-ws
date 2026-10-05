@@ -8,8 +8,12 @@ use App\Models\Category;
 use App\Models\EventSection;
 use App\Models\Role;
 use App\Models\Event;
+use App\Models\EventTicket;
 use App\Models\Permission;
 use App\Models\RolePermission;
+use App\Models\Ticket;
+use App\Models\Transaction;
+use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Foundation\Testing\WithFaker;
 use Tests\TestCase;
@@ -483,7 +487,7 @@ class EventControllerTest extends TestCase
     }
 
     #[\PHPUnit\Framework\Attributes\Test]
-    public function itPreventsDeleteEventWithRegistrations()
+    public function itCanDeleteEventWithRegistrationCountButNoTickets()
     {
         $event = Event::create([
             'event_name' => 'Test Event',
@@ -493,6 +497,80 @@ class EventControllerTest extends TestCase
             'schedule_type' => Event::SCHEDULE_TYPES['SINGLE'],
             'registration_count' => 5,
             'status' => GeneralConstants::EVENT_STATUSES['DRAFT'],
+        ]);
+
+        $response = $this->withHeaders([
+            'Authorization' => 'Bearer ' . $this->adminToken,
+        ])->deleteJson('/api/v1/events/' . $event->uuid);
+
+        $response->assertStatus(204);
+
+        $this->assertSoftDeleted('events', [
+            'uuid' => $event->uuid,
+        ]);
+    }
+
+    #[\PHPUnit\Framework\Attributes\Test]
+    public function itPreventsDeleteEventWithRegistrations()
+    {
+        $event = Event::create([
+            'event_name' => 'Test Event',
+            'event_description' => 'Test description',
+            'event_type' => Event::EVENT_TYPES['SINGLE'],
+            'contact_email' => 'contact@event.com',
+            'schedule_type' => Event::SCHEDULE_TYPES['SINGLE'],
+            'status' => GeneralConstants::EVENT_STATUSES['DRAFT'],
+        ]);
+
+        $eventTicket = EventTicket::create([
+            'event_uuid' => $event->uuid,
+            'code' => 'GEN',
+            'name' => 'General Admission',
+            'price' => 100.00,
+            'is_bundle' => false,
+            'display_order' => 1,
+            'max_ticket' => 50,
+            'status' => GeneralConstants::GENERAL_STATUSES['ACTIVE'],
+            'is_unlimited' => true,
+        ]);
+
+        $customer = User::create([
+            'role_uuid' => Role::create([
+                'name' => 'Customer',
+                'code' => GeneralConstants::ROLES['CUSTOMER']['name'],
+            ])->uuid,
+            'first_name' => 'Ticket',
+            'last_name' => 'Holder',
+            'email' => 'ticket-holder@test.com',
+            'password' => 'password123',
+            'status' => GeneralConstants::GENERAL_STATUSES['ACTIVE'],
+            'email_verified_at' => now(),
+        ]);
+
+        $transaction = Transaction::create([
+            'user_uuid' => $customer->uuid,
+            'event_uuid' => $event->uuid,
+            'payment_method' => 'cash',
+            'order_number' => 'ORD-DELETE-GUARD-001',
+            'total_amount' => 100.00,
+            'sub_total' => 100.00,
+            'tax_amount' => 0.00,
+            'discount' => 0.00,
+            'status' => 'completed',
+            'payment_status' => Transaction::PAYMENT_STATUS['PAID'],
+            'order_status' => 'confirmed',
+        ]);
+
+        Ticket::create([
+            'user_uuid' => $customer->uuid,
+            'transaction_uuid' => $transaction->uuid,
+            'event_uuid' => $event->uuid,
+            'event_ticket_uuid' => $eventTicket->uuid,
+            'attendee_name' => 'Ticket Holder',
+            'attendee_email' => 'ticket-holder@test.com',
+            'ticket_number' => 'TN-DELETE-GUARD-1',
+            'qr_code' => 'QR-DELETE-GUARD-1',
+            'status' => GeneralConstants::TICKET_STATUSES['ACTIVE'],
         ]);
 
         $response = $this->withHeaders([

@@ -364,7 +364,9 @@ class EventRepository
      */
     public function delete(Event $event): void
     {
-        if ((int) $event->registration_count > 0 || $event->tickets()->exists()) {
+        // registration_count is shown as "views" in the admin and seeded with demo values,
+        // so only real tickets block deletion.
+        if ($event->tickets()->exists()) {
             throw new UnauthorizedException('Cannot delete event with existing registrations.');
         }
 

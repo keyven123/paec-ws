@@ -56,6 +56,7 @@ use App\Observers\PromoCodeObserver;
 use App\Services\Checkout\CheckoutHandlerRegistry;
 use App\Services\Checkout\EventCheckoutHandler;
 use App\Services\Checkout\VenueCheckoutHandler;
+use Illuminate\Support\Facades\URL;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Database\Eloquent\Relations\Relation;
 
@@ -80,6 +81,12 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        // Hostinger bridge (public_html/api) rewrites SCRIPT_NAME; keep url() on APP_URL.
+        $appUrl = config('app.url');
+        if (is_string($appUrl) && $appUrl !== '') {
+            URL::forceRootUrl(rtrim($appUrl, '/'));
+        }
+
         AdminUser::observe(AdminUserObserver::class);
         Branch::observe(BranchObserver::class);
         Category::observe(CategoryObserver::class);

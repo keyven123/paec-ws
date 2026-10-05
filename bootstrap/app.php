@@ -14,7 +14,9 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
-        $middleware->append(HandleCors::class);
+        // Must run first so preflight OPTIONS and error responses get CORS headers
+        // (needed for Vercel frontend → Hostinger API).
+        $middleware->prepend(HandleCors::class);
 
         // Register custom middleware
         $middleware->alias([
