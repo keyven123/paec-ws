@@ -6,6 +6,7 @@ use App\Http\Controllers\AuthController;
 use App\Http\Controllers\BroadcastingAuthController;
 use App\Http\Controllers\CategoryController;
 use App\Http\Controllers\Customer\ProfileController;
+use App\Http\Controllers\Customer\TempTransactionController;
 use App\Http\Controllers\DatasetController;
 use App\Http\Controllers\EventController;
 use App\Http\Controllers\EventTicketController;
@@ -104,6 +105,12 @@ Route::prefix('v1')->group(function () {
             });
 
             Route::get('/promo-codes/{code}', [PromoCodeController::class, 'validateForEvent']);
+
+            Route::group(['prefix' => 'temp-transactions/guest'], function () {
+                Route::post('/', [TempTransactionController::class, 'guestTempTransaction']);
+                Route::post('checkout-free', [TempTransactionController::class, 'guestCheckoutFree']);
+                Route::post('checkout-bypass', [TempTransactionController::class, 'guestCheckoutBypass']);
+            });
 
             Route::group(['prefix' => 'venue-listings'], function () {
                 Route::get('/', [VenueListingController::class, 'publicListings']);

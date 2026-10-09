@@ -10,6 +10,7 @@ use App\Models\EventTicket;
 use App\Models\Organization;
 use App\Models\Schedule;
 use App\Models\ScheduleTime;
+use App\Services\EventLocationService;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -72,6 +73,8 @@ class PaecActivitySeeder extends Seeder
                     'tags' => $activity['tags'] ?? [],
                 ]
             );
+
+            EventLocationService::ensureDefaultLocation($event);
 
             $schedule = Schedule::updateOrCreate(
                 [

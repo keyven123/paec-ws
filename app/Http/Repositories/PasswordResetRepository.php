@@ -105,6 +105,9 @@ class PasswordResetRepository implements PasswordResetContract
         if (!$user->email_verified_at) {
             $user->email_verified_at = Carbon::now();
         }
+        if ($user instanceof User && $user->provider === User::GUEST_PROVIDER) {
+            $user->provider = null;
+        }
         // $user->is_first_time_login = 1;
         $user->is_migrated = false;
         $user->save();

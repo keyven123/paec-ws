@@ -92,7 +92,11 @@ class User extends Authenticatable implements JWTSubject
         'remember_token',
     ];
 
-
+    /**
+     * Provider marker for customers created by guest checkout (no password set by the buyer).
+     * They can claim the record later by signing up, resetting the password, or social login.
+     */
+    const GUEST_PROVIDER = 'guest';
 
     /**
      * The attributes that should be hidden for serialization.

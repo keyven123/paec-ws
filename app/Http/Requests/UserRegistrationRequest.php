@@ -2,8 +2,10 @@
 
 namespace App\Http\Requests;
 
+use App\Models\User;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\Rules\Unique;
 
 class UserRegistrationRequest extends FormRequest
 {
@@ -33,11 +35,23 @@ class UserRegistrationRequest extends FormRequest
             'first_name' => ['required', 'string', 'max:255'],
             'last_name' => ['required', 'string', 'max:255'],
             'address' => ['required', 'string', 'max:500'],
-            'phone_number' => ['required', 'string', 'regex:/^\+[1-9]\d{7,14}$/', Rule::unique('users', 'phone_number')],
-            'email' => ['required', 'email', 'max:255', 'unique:users,email'],
+            'phone_number' => ['required', 'string', 'regex:/^\+[1-9]\d{7,14}$/', $this->uniqueIgnoringGuests('phone_number')],
+            'email' => ['required', 'email', 'max:255', $this->uniqueIgnoringGuests('email')],
             'password' => ['required', 'string', 'min:8', 'regex:/^(?=.*[0-9])(?=.*[A-Z])(?=.*[!@#$%^&*_@.]).{8,}$/', 'confirmed'],
             'terms_accepted' => ['required', 'accepted'],
         ];
+    }
+
+    /**
+     * Guest-checkout customers are claimed on sign-up, so they must not block the email / phone.
+     */
+    private function uniqueIgnoringGuests(string $column): Unique
+    {
+        return Rule::unique('users', $column)->where(
+            fn ($query) => $query->where(
+                fn ($q) => $q->whereNull('provider')->orWhere('provider', '!=', User::GUEST_PROVIDER)
+            )
+        );
     }
 
     public function messages(): array

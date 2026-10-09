@@ -29,7 +29,7 @@ class AuthController extends Controller
         $data = $request->validated();
 
         $role = Role::whereCode(GeneralConstants::ROLES['CUSTOMER']['name'])->first();
-        $user = User::create([
+        $attributes = [
             'role_uuid' => $role->uuid,
             'first_name' => $data['first_name'],
             'last_name' => $data['last_name'],
@@ -41,7 +41,20 @@ class AuthController extends Controller
             'terms_accepted_at' => now(),
             'marketing_consent' => false,
             'is_first_time_login' => false,
-        ]);
+        ];
+
+        $guestUser = User::where('email', $data['email'])
+            ->where('provider', User::GUEST_PROVIDER)
+            ->first();
+
+        if ($guestUser) {
+            $guestUser->fill($attributes);
+            $guestUser->provider = null;
+            $guestUser->save();
+            $user = $guestUser;
+        } else {
+            $user = User::create($attributes);
+        }
 
         $token = auth('api')->login($user);
 
@@ -69,6 +82,12 @@ class AuthController extends Controller
                     'message' => "For your account's security, we've recently updated our authentication system. Please check your email for a link to reset your password before you can log in again."
                 ]
             ], 201);
+        }
+
+        if ($user->provider === User::GUEST_PROVIDER && is_null($user->email_verified_at)) {
+            return response()->json([
+                'message' => 'This email was used for a guest checkout. Please sign up with the same email to access your tickets.',
+            ], 401);
         }
 
         if (is_null($user->email_verified_at)) {

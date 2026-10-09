@@ -23,6 +23,10 @@ class EventLocationService
     {
         $locations = self::activeLocationsForEvent($event->uuid);
 
+        if ($locations->isEmpty() && ! EventLocation::query()->where('event_uuid', $event->uuid)->exists()) {
+            $locations = collect([self::ensureDefaultLocation($event)]);
+        }
+
         if ($locations->isEmpty()) {
             throw ValidationException::withMessages([
                 'event_location_uuid' => 'No active locations are configured for this activity.',

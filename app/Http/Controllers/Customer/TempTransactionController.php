@@ -15,6 +15,8 @@ use App\Services\Checkout\CheckoutHandlerRegistry;
 use App\Http\Requests\Customer\CheckoutTempTransactionRequest;
 use App\Http\Requests\Customer\CheckoutFreeTempTransactionRequest;
 use App\Http\Requests\Customer\CheckoutPaypalCardRequest;
+use App\Http\Requests\Customer\GuestCheckoutTempTransactionRequest;
+use App\Http\Requests\Customer\GuestTempTransactionRequest;
 use App\Http\Requests\Customer\ShowTempTransactionRequest;
 use App\Http\Requests\Customer\TempTransactionRequest;
 use App\Http\Requests\Customer\UpdateTempTransactionRequest;
@@ -23,7 +25,10 @@ use App\Jobs\SuccessPaymentProcess;
 use App\Models\EventTicket;
 use App\Models\TempTransaction;
 use App\Models\Transaction;
+use App\Models\User;
+use App\Services\Checkout\GuestCustomerService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Str;
 use App\Services\MetaPixelService;
 use App\Services\Payments\PaymentServiceFactory;
 use App\Services\Payments\PaymentStatusResolver;
@@ -69,8 +74,49 @@ class TempTransactionController extends Controller
      */
     public function tempTransaction(TempTransactionRequest $request): JsonResponse
     {
-        $payload = $request->validated();
+        return $this->createTempTransactionFor($request->validated(), $request->user());
+    }
 
+    /**
+     * Guest checkout: create the temp transaction for the customer matching the guest email
+     * (a guest customer is created when no account exists).
+     */
+    public function guestTempTransaction(GuestTempTransactionRequest $request): JsonResponse
+    {
+        $payload = $request->validated();
+        $user = GuestCustomerService::resolve($payload['guest']);
+
+        return $this->createTempTransactionFor($payload, $user);
+    }
+
+    public function guestCheckoutFree(GuestCheckoutTempTransactionRequest $request): JsonResponse
+    {
+        $this->assertGuestOwnsTempTransaction($request->validated());
+
+        return $this->checkoutFree($request);
+    }
+
+    public function guestCheckoutBypass(GuestCheckoutTempTransactionRequest $request): JsonResponse
+    {
+        $this->assertGuestOwnsTempTransaction($request->validated());
+
+        return $this->checkoutBypass($request);
+    }
+
+    private function assertGuestOwnsTempTransaction(array $payload): void
+    {
+        $tempTransaction = $this->tempTransactionRepository->fetchOrThrow('uuid', $payload['temp_transaction_uuid']);
+        $ownerEmail = User::query()->whereKey($tempTransaction->user_uuid)->value('email');
+
+        if (! $ownerEmail || Str::lower($ownerEmail) !== Str::lower(trim($payload['email']))) {
+            throw ValidationException::withMessages([
+                'temp_transaction_uuid' => ['This order does not match the provided email address.'],
+            ]);
+        }
+    }
+
+    private function createTempTransactionFor(array $payload, User $user): JsonResponse
+    {
         // Validate ticket availability before proceeding
         $this->validateTicketAvailability($payload['tickets'], null);
 
@@ -97,12 +143,12 @@ class TempTransactionController extends Controller
 
         $affiliatePartnerUuid = AffiliateAttributionService::resolvePartnerUuid(
             $payload['affiliate_code'] ?? null,
-            $request->user(),
+            $user,
             $event,
         );
 
         $createPayload = [
-            'user_uuid' => $request->user()->uuid,
+            'user_uuid' => $user->uuid,
             'transactionable_type' => 'event',
             'transactionable_uuid' => $payload['event_uuid'],
             'event_uuid' => $payload['event_uuid'],
@@ -129,7 +175,7 @@ class TempTransactionController extends Controller
         $this->tempTransactionRepository
             ->createTempTransactionOrders(
                 $pricing['temp_transaction_orders'],
-                $request->user()->uuid,
+                $user->uuid,
                 $tempTransaction->uuid
             );
 
