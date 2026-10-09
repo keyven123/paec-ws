@@ -89,18 +89,11 @@ class TempTransactionController extends Controller
         return $this->createTempTransactionFor($payload, $user);
     }
 
-    public function guestCheckoutFree(GuestCheckoutTempTransactionRequest $request): JsonResponse
+    public function guestPlaceOrder(GuestCheckoutTempTransactionRequest $request): JsonResponse
     {
         $this->assertGuestOwnsTempTransaction($request->validated());
 
-        return $this->checkoutFree($request);
-    }
-
-    public function guestCheckoutBypass(GuestCheckoutTempTransactionRequest $request): JsonResponse
-    {
-        $this->assertGuestOwnsTempTransaction($request->validated());
-
-        return $this->checkoutBypass($request);
+        return $this->placeOrder($request);
     }
 
     private function assertGuestOwnsTempTransaction(array $payload): void
@@ -605,18 +598,11 @@ class TempTransactionController extends Controller
     }
 
     /**
-     * Temporary dev bypass — marks any temp transaction as paid without a gateway.
-     * Only available when APP_DEBUG=true.
+     * Confirms the order and issues tickets immediately without a payment gateway
+     * (used until real payment methods are integrated).
      */
-    public function checkoutBypass(CheckoutFreeTempTransactionRequest $request): JsonResponse
+    public function placeOrder(CheckoutFreeTempTransactionRequest $request): JsonResponse
     {
-        if (!config('app.debug')) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Payment bypass is not available.',
-            ], 403);
-        }
-
         $payload = $request->validated();
         $tempTransaction = $this->tempTransactionRepository->fetchOrThrow('uuid', $payload['temp_transaction_uuid']);
 
@@ -653,13 +639,13 @@ class TempTransactionController extends Controller
                 'orders' => $result['orders'],
                 'tickets' => $result['tickets'],
                 'payment' => [
-                    'provider' => 'bypass',
+                    'provider' => 'free',
                     'status' => 'paid',
                 ],
             ], 201);
         } catch (\Exception $e) {
             DB::rollBack();
-            Log::error('Bypass checkout failed', [
+            Log::error('Place order failed', [
                 'temp_transaction_uuid' => $payload['temp_transaction_uuid'],
                 'error' => $e->getMessage(),
             ]);

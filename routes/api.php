@@ -108,8 +108,7 @@ Route::prefix('v1')->group(function () {
 
             Route::group(['prefix' => 'temp-transactions/guest'], function () {
                 Route::post('/', [TempTransactionController::class, 'guestTempTransaction']);
-                Route::post('checkout-free', [TempTransactionController::class, 'guestCheckoutFree']);
-                Route::post('checkout-bypass', [TempTransactionController::class, 'guestCheckoutBypass']);
+                Route::post('place-order', [TempTransactionController::class, 'guestPlaceOrder']);
             });
 
             Route::group(['prefix' => 'venue-listings'], function () {

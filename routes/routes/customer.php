@@ -59,7 +59,7 @@ Route::group(['prefix' => 'customer'], function () {
         Route::post('/', [TempTransactionController::class, 'tempTransaction']);
         Route::post('checkout', [TempTransactionController::class, 'checkout']);
         Route::post('checkout-free', [TempTransactionController::class, 'checkoutFree']);
-        Route::post('checkout-bypass', [TempTransactionController::class, 'checkoutBypass']);
+        Route::post('place-order', [TempTransactionController::class, 'placeOrder']);
         Route::post('checkout-paypal-card', [TempTransactionController::class, 'checkoutPaypalCard']);
         Route::put('/{uuid}', [TempTransactionController::class, 'updateTempTransaction']);
         Route::delete('/{uuid}', [TempTransactionController::class, 'destroyTempTransaction']);

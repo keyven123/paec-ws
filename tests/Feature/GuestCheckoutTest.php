@@ -7,6 +7,7 @@ use App\Models\Event;
 use App\Models\EventLocation;
 use App\Models\EventTicket;
 use App\Models\Role;
+use App\Models\Ticket;
 use App\Models\Transaction;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -23,8 +24,6 @@ class GuestCheckoutTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-
-        config(['app.debug' => true]);
 
         Role::create([
             'name' => 'Customer',
@@ -75,13 +74,15 @@ class GuestCheckoutTest extends TestCase
     #[Test]
     public function guestCanPayAndTransactionIsRecordedForAdmin(): void
     {
+        config(['app.debug' => false]);
+
         $temp = $this->postJson('/api/v1/public/temp-transactions/guest', $this->cartPayload())
             ->assertStatus(201)
             ->json();
 
         $this->assertSame(1, EventLocation::where('event_uuid', $this->event->uuid)->count());
 
-        $this->postJson('/api/v1/public/temp-transactions/guest/checkout-bypass', [
+        $this->postJson('/api/v1/public/temp-transactions/guest/place-order', [
             'temp_transaction_uuid' => $temp['uuid'],
             'email' => 'GUEST.buyer@example.com',
         ])->assertStatus(201)->assertJson(['success' => true]);
@@ -94,6 +95,12 @@ class GuestCheckoutTest extends TestCase
         $this->assertSame(Transaction::PAYMENT_STATUS['PAID'], $transaction->payment_status);
         $this->assertSame(Transaction::ORDER_STATUS['CONFIRMED'], $transaction->order_status);
         $this->assertEquals(1000, (float) $transaction->total_amount);
+
+        $tickets = Ticket::where('transaction_uuid', $transaction->uuid)->get();
+        $this->assertCount(2, $tickets);
+        $this->assertTrue($tickets->every(
+            fn (Ticket $ticket) => $ticket->status === GeneralConstants::TICKET_STATUSES['ACTIVE'] && $ticket->qr_code
+        ));
     }
 
     #[Test]
@@ -103,7 +110,7 @@ class GuestCheckoutTest extends TestCase
             ->assertStatus(201)
             ->json();
 
-        $this->postJson('/api/v1/public/temp-transactions/guest/checkout-bypass', [
+        $this->postJson('/api/v1/public/temp-transactions/guest/place-order', [
             'temp_transaction_uuid' => $temp['uuid'],
             'email' => 'someone.else@example.com',
         ])->assertStatus(422)->assertJsonValidationErrors('temp_transaction_uuid');
@@ -135,7 +142,7 @@ class GuestCheckoutTest extends TestCase
         $temp = $this->postJson('/api/v1/public/temp-transactions/guest', $this->cartPayload())
             ->assertStatus(201)
             ->json();
-        $this->postJson('/api/v1/public/temp-transactions/guest/checkout-bypass', [
+        $this->postJson('/api/v1/public/temp-transactions/guest/place-order', [
             'temp_transaction_uuid' => $temp['uuid'],
             'email' => 'guest.buyer@example.com',
         ])->assertStatus(201);

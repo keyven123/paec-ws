@@ -233,7 +233,6 @@ class EventLocationApiTest extends TestCase
     public function test_checkout_persists_event_location_on_transaction_and_tickets(): void
     {
         Mail::fake();
-        config(['app.debug' => true]);
 
         ['event' => $event, 'ticket' => $ticket, 'manila' => $manila] = $this->createMultiLocationEvent();
         $branchOrg = Organization::factory()->create(['name' => 'PAEC Manila Branch']);
@@ -258,7 +257,7 @@ class EventLocationApiTest extends TestCase
         $tempUuid = $tempResponse->json('uuid');
 
         $this->withToken($this->customerToken)
-            ->postJson('/api/v1/customer/temp-transactions/checkout-bypass', [
+            ->postJson('/api/v1/customer/temp-transactions/place-order', [
                 'temp_transaction_uuid' => $tempUuid,
             ])
             ->assertCreated()
