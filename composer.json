@@ -60,6 +60,11 @@
         "test": [
             "@php artisan config:clear --ansi",
             "@php artisan test"
+        ],
+        "test:coverage": [
+            "@php artisan config:clear --ansi",
+            "@php -d pcov.enabled=1 -d pcov.directory=app vendor/bin/phpunit -c phpunit.coverage.xml",
+            "@php tests/coverage-gate.php report/clover.xml 100"
         ]
     },
     "extra": {

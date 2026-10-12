@@ -128,7 +128,7 @@ class AdminOperatorConsoleService
             }
         }
 
-        $currentDays = max(1, $periodStart->diffInDays($periodEnd) + 1);
+        $currentDays = max(1, (int) $periodStart->diffInDays($periodEnd) + 1);
         $currentDaily = round($ticketsSoldToday / $currentDays, 2);
         $previousDaily = $this->averageTicketsForWindow($prevStart, $prevEnd);
         $ticketsVsAvgPct = $previousDaily > 0
@@ -181,7 +181,7 @@ class AdminOperatorConsoleService
         $qty = (int) TransactionOrder::query()
             ->whereIn('transaction_uuid', $txIds)
             ->sum('quantity');
-        $days = max(1, $windowStart->diffInDays($windowEnd) + 1);
+        $days = max(1, (int) $windowStart->diffInDays($windowEnd) + 1);
 
         return round($qty / $days, 2);
     }
@@ -205,7 +205,7 @@ class AdminOperatorConsoleService
             if ($curStart->gt($curEnd)) {
                 throw new InvalidArgumentException('Custom start date must be on or before end date.');
             }
-            $days = max(1, $curStart->diffInDays($curEnd) + 1);
+            $days = max(1, (int) $curStart->diffInDays($curEnd) + 1);
             $prevEnd = $curStart->copy()->subDay()->endOfDay();
             $prevStart = $prevEnd->copy()->subDays($days - 1)->startOfDay();
             return [

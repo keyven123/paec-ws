@@ -90,6 +90,17 @@ final class GeneralConstants
         'FREE' => 'free',
     ];
 
+    const PAYMENT_GATEWAY_PROVIDERS = [
+        'PAYMONGO' => 'paymongo',
+        'PAYPAL' => 'paypal',
+        'PAYNAMICS' => 'paynamics',
+    ];
+
+    const PAYMENT_GATEWAY_ENVIRONMENTS = [
+        'TESTING' => 'testing',
+        'PRODUCTION' => 'production',
+    ];
+
     const MODEL = [
         'USER' => 'User',
         'ADMIN_USER' => 'AdminUser',

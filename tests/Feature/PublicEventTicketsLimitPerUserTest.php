@@ -188,4 +188,27 @@ class PublicEventTicketsLimitPerUserTest extends TestCase
         $this->assertSame(3, $rows[$this->ticketB->uuid]['bought_ticket_count']);
         $this->assertSame(2, $rows[$this->ticketB->uuid]['remaining_ticket_limit_per_user']);
     }
+
+    #[Test]
+    public function publicEventTicketsReturnTheDiscountedPriceCheckoutCharges(): void
+    {
+        $this->ticketA->update(['price' => 599, 'discount_type' => 'amount', 'discount_value' => 200]);
+        $this->ticketB->update(['price' => 200, 'discount_type' => 'percentage', 'discount_value' => 20]);
+
+        $rows = collect(
+            $this->getJson('/api/v1/public/events/' . $this->event->uuid . '/tickets?schedule_uuid=' . $this->schedule->uuid . '&schedule_time_uuid=' . $this->scheduleTime->uuid)
+                ->assertOk()
+                ->json('data')
+        )->keyBy('uuid');
+
+        $this->assertEquals(599, $rows[$this->ticketA->uuid]['price']);
+        $this->assertEquals(399, $rows[$this->ticketA->uuid]['discounted_price']);
+        $this->assertEquals(200, $rows[$this->ticketB->uuid]['price']);
+        $this->assertEquals(160, $rows[$this->ticketB->uuid]['discounted_price']);
+
+        $pricing = \App\Helpers\ComputationHelper::buildCheckoutPricing($this->event, [
+            ['event_ticket_uuid' => $this->ticketA->uuid, 'quantity' => 1],
+        ]);
+        $this->assertEquals($rows[$this->ticketA->uuid]['discounted_price'], $pricing['total_amount']);
+    }
 }

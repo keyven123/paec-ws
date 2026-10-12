@@ -123,6 +123,11 @@ class VenueListingRepository
      */
     public function delete(VenueListing $venueListing): void
     {
+        // The slug column is unique across soft-deleted rows, so release it for reuse.
+        $suffix = '--deleted-' . now()->timestamp;
+        $venueListing->slug = Str::limit($venueListing->slug, 255 - strlen($suffix), '') . $suffix;
+        $venueListing->save();
+
         $venueListing->delete();
     }
 

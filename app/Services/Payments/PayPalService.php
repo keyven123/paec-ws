@@ -15,11 +15,14 @@ class PayPalService implements PaymentServiceInterface
     private string $baseUrl;
     private ?string $accessToken = null;
 
-    public function __construct()
+    /**
+     * Credentials default to the platform account in .env; an activity's payment gateway passes its own.
+     */
+    public function __construct(?string $clientId = null, ?string $clientSecret = null, ?string $mode = null)
     {
-        $this->clientId = config('services.paypal.client_id');
-        $this->clientSecret = config('services.paypal.client_secret');
-        $this->mode = config('services.paypal.mode', 'sandbox');
+        $this->clientId = $clientId ?? config('services.paypal.client_id');
+        $this->clientSecret = $clientSecret ?? config('services.paypal.client_secret');
+        $this->mode = $mode ?? config('services.paypal.mode', 'sandbox');
         $this->webhookId = config('services.paypal.webhook_id');
 
         // Validate credentials are set

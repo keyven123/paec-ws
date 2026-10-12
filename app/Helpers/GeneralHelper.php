@@ -7,7 +7,6 @@ use App\Models\Event;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\Relation;
-use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Storage;
@@ -40,40 +39,6 @@ class GeneralHelper
         }
 
         return true;
-    }
-
-    /**
-     * @param UploadedFile $file
-     * @param string $path
-     * @return array
-     */
-    public static function uploadHelper(UploadedFile $file, string $path): array
-    {
-        $completePath = public_path() . "/$path";
-        $extension = pathinfo($file->getClientOriginalName(), PATHINFO_EXTENSION);
-        $fileName = time() . '-' . $file('image')->getClientOriginalName() . '.' . $extension;
-        // $fileName = strtotime('now') . '.' . $extension;
-
-        if (!File::exists($completePath)) {
-            File::makeDirectory($completePath, 0755, true);
-        }
-        // $file->move($completePath, $fileName);
-        $file->save($completePath . $fileName);
-
-        // Generate Thumbnail Image Upload on Folder Code
-        $destinationPathThumbnail = $completePath . '/thumbnails/';
-        $file->resize(100, 100);
-
-        if (!File::exists($destinationPathThumbnail)) {
-            File::makeDirectory($destinationPathThumbnail, 0755, true);
-        }
-
-        $file->save($destinationPathThumbnail . $fileName);
-
-        return [
-            'url' => "$path$fileName",
-            'type' => $extension
-        ];
     }
 
     /**

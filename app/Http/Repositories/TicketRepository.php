@@ -159,7 +159,7 @@ class TicketRepository
             ->active()
             ->ownedBy($userUuid)
             ->where($key, $value)
-            ->first();
+            ->firstOr(fn () => throw new NoTicketFoundException());
     }
 
     /**
@@ -367,6 +367,71 @@ class TicketRepository
     }
 
     /**
+     * Find a paid order by its order (group) QR code, with the tickets it issued for the event.
+     * @throws NoTicketFoundException
+     */
+    public function getOrderByQrCode(string $qrCode, ?string $eventUuid = null): Transaction
+    {
+        $transaction = $this->transaction
+            ->with(['user', 'schedule', 'scheduleTime', 'transactionOrders'])
+            ->where('qr_code', $qrCode)
+            ->where('payment_status', Transaction::PAYMENT_STATUS['PAID'])
+            ->first();
+
+        if (is_null($transaction)) {
+            throw new NoTicketFoundException();
+        }
+
+        $tickets = $transaction->tickets()
+            ->with([
+                'user',
+                'transaction.schedule',
+                'transaction.scheduleTime',
+                'transaction.transactionOrders',
+                'event',
+                'eventTicket',
+                'eventLocation',
+            ])
+            ->when($eventUuid, fn ($query) => $query->where('event_uuid', $eventUuid))
+            ->orderBy('created_at')
+            ->orderBy('uuid')
+            ->get();
+
+        if ($tickets->isEmpty()) {
+            throw new NoTicketFoundException();
+        }
+
+        return $transaction->setRelation('tickets', $tickets);
+    }
+
+    /**
+     * Admit every ticket in the order that has not been used yet.
+     * @return int Number of tickets admitted.
+     */
+    public function confirmOrderEntry(Transaction $transaction): int
+    {
+        return DB::transaction(function () use ($transaction) {
+            $admitted = 0;
+
+            foreach ($transaction->tickets as $ticket) {
+                $ticket = $this->ticket->whereKey($ticket->uuid)->lockForUpdate()->first();
+                if (
+                    !$ticket
+                    || $ticket->used_at
+                    || $ticket->status !== GeneralConstants::TICKET_STATUSES['ACTIVE']
+                ) {
+                    continue;
+                }
+
+                $this->confirmEntry($ticket);
+                $admitted++;
+            }
+
+            return $admitted;
+        });
+    }
+
+    /**
      * Confirm entry - mark ticket as used
      * @param Ticket $ticket
      * @return bool
@@ -480,9 +545,6 @@ class TicketRepository
                 $emptyOtherInfoTemplate = [];
                 foreach (array_keys($event->other_info) as $fieldName) {
                     $emptyOtherInfoTemplate[$fieldName] = '';
-                }
-                if ($emptyOtherInfoTemplate === []) {
-                    $emptyOtherInfoTemplate = null;
                 }
             }
 

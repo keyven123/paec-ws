@@ -14,7 +14,9 @@ use App\Http\Requests\Ticket\AddTicketToUserRequest;
 use Illuminate\Http\Response;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use App\Constants\GeneralConstants;
 use App\Models\EventTicket;
+use App\Models\Transaction;
 use App\Models\User;
 use App\Notifications\PaymentSuccessfulNotification;
 use Carbon\Carbon;
@@ -259,6 +261,148 @@ class TicketController extends Controller
                 'message' => $e->getMessage()
             ], 403);
         }
+    }
+
+    /**
+     * Get every ticket in an order by its order (group) QR code.
+     */
+    public function getOrderDetailsByQrCode(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'qr_code' => ['required', 'string'],
+            'event_uuid' => ['nullable', 'uuid', 'exists:events,uuid'],
+        ]);
+
+        try {
+            $transaction = $this->ticketRepository->getOrderByQrCode(
+                $validated['qr_code'],
+                $validated['event_uuid'] ?? null
+            );
+        } catch (NoTicketFoundException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Order not found with the provided QR code'
+            ], 404);
+        }
+
+        $payload = $this->orderScanPayload($transaction, $request);
+        if ($payload['admittable_count'] === 0 && $payload['restriction']) {
+            return $this->restrictionResponse($payload['restriction'], $payload['data']);
+        }
+
+        return response()->json(['data' => $payload['data']]);
+    }
+
+    /**
+     * Admit every unused ticket in an order scanned by its order (group) QR code.
+     */
+    public function confirmOrderEntry(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'qr_code' => ['required', 'string'],
+            'event_uuid' => ['nullable', 'uuid', 'exists:events,uuid'],
+        ]);
+
+        try {
+            $transaction = $this->ticketRepository->getOrderByQrCode(
+                $validated['qr_code'],
+                $validated['event_uuid'] ?? null
+            );
+        } catch (NoTicketFoundException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Order not found with the provided QR code'
+            ], 404);
+        }
+
+        $payload = $this->orderScanPayload($transaction, $request);
+        if ($payload['admittable_count'] === 0) {
+            if ($payload['restriction']) {
+                return $this->restrictionResponse($payload['restriction'], $payload['data']);
+            }
+
+            return response()->json([
+                'success' => false,
+                'message' => 'All tickets in this order have already been used.',
+            ], 409);
+        }
+
+        $admittable = $transaction->tickets->whereIn('uuid', $payload['admittable_uuids'])->values();
+        $admitted = $this->ticketRepository->confirmOrderEntry(
+            $transaction->setRelation('tickets', $admittable)
+        );
+
+        $fresh = $this->ticketRepository->getOrderByQrCode(
+            $validated['qr_code'],
+            $validated['event_uuid'] ?? null
+        );
+
+        return response()->json([
+            'admitted_count' => $admitted,
+            'data' => $this->orderScanPayload($fresh, $request)['data'],
+        ]);
+    }
+
+    /**
+     * @return array{data: array<string, mixed>, admittable_count: int, admittable_uuids: array<int, string>, restriction: ?array}
+     */
+    private function orderScanPayload(Transaction $transaction, Request $request): array
+    {
+        $firstRestriction = null;
+        $admittableUuids = [];
+        $tickets = [];
+
+        foreach ($transaction->tickets as $ticket) {
+            $restriction = null;
+            $canEnter = !$ticket->used_at
+                && $ticket->status === GeneralConstants::TICKET_STATUSES['ACTIVE'];
+
+            if ($canEnter) {
+                $restriction = $this->entryVisitDateRestriction($ticket)
+                    ?? $this->entryScheduleRestriction($ticket);
+                $firstRestriction ??= $restriction;
+                if (!$restriction) {
+                    $admittableUuids[] = $ticket->uuid;
+                }
+            }
+
+            $tickets[] = array_merge((new TicketResource($ticket))->resolve($request), [
+                'entry_restriction' => $restriction['code'] ?? null,
+            ]);
+        }
+
+        $user = $transaction->user;
+        $firstTicket = $transaction->tickets->first();
+
+        return [
+            'admittable_count' => count($admittableUuids),
+            'admittable_uuids' => $admittableUuids,
+            'restriction' => $firstRestriction,
+            'data' => [
+                'uuid' => $transaction->uuid,
+                'order_number' => $transaction->order_number,
+                'qr_code' => $transaction->qr_code,
+                'event_uuid' => $firstTicket?->event_uuid,
+                'holder_name' => $user ? trim($user->first_name . ' ' . $user->last_name) : null,
+                'date_of_visit' => $tickets[0]['date_of_visit'] ?? null,
+                'admittable_count' => count($admittableUuids),
+                'tickets' => $tickets,
+            ],
+        ];
+    }
+
+    /**
+     * @param array<string, mixed>|null $order Order scan payload, so the scanner can still list the group's tickets.
+     */
+    private function restrictionResponse(array $restriction, ?array $order = null): JsonResponse
+    {
+        return response()->json(array_filter([
+            'success' => false,
+            'code' => $restriction['code'],
+            'message' => $restriction['message'],
+            'meta' => $restriction['meta'],
+            'data' => $order,
+        ], fn ($value) => $value !== null), 403);
     }
 
     /**

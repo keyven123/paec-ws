@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:noNamespaceSchemaLocation="vendor/phpunit/phpunit/phpunit.xsd"
+         bootstrap="vendor/autoload.php"
+         colors="true"
+>
+    <testsuites>
+        <testsuite name="Unit">
+            <directory>tests/Unit</directory>
+        </testsuite>
+        <testsuite name="Feature">
+            <directory>tests/Feature</directory>
+        </testsuite>
+    </testsuites>
+    <source>
+        <include>
+            <directory>app</directory>
+        </include>
+        <!-- One-off maintenance scripts (legacy CSV imports, backfills, interactive setup); recurring jobs stay covered. -->
+        <exclude>
+            <file>app/Console/Commands/BackfillTransactionCommissions.php</file>
+            <file>app/Console/Commands/CreateOrganizerUser.php</file>
+            <file>app/Console/Commands/CreatePlace.php</file>
+            <file>app/Console/Commands/GenerateSlugEventName.php</file>
+            <file>app/Console/Commands/MigrateAdminAndOrganizer.php</file>
+            <file>app/Console/Commands/MigrateEvents.php</file>
+            <file>app/Console/Commands/MigrateEventTickets.php</file>
+            <file>app/Console/Commands/MigratePurchases.php</file>
+            <file>app/Console/Commands/MigrateTransactionPurchasedAt.php</file>
+            <file>app/Console/Commands/MigrateUsers.php</file>
+            <file>app/Console/Commands/ResetPaecAdminData.php</file>
+            <file>app/Console/Commands/SyncEventBlockedSeats.php</file>
+        </exclude>
+    </source>
+    <coverage>
+        <report>
+            <html outputDirectory="report"/>
+            <clover outputFile="report/clover.xml"/>
+            <text outputFile="php://stdout" showOnlySummary="false"/>
+        </report>
+    </coverage>
+    <php>
+        <ini name="memory_limit" value="2G"/>
+        <env name="APP_ENV" value="testing"/>
+        <env name="APP_KEY" value="base64:864H5e8tKWg0/ONkEwSHo9aGM5lbqzKD2LVsANKUD5U="/>
+        <env name="APP_MAINTENANCE_DRIVER" value="file"/>
+        <env name="JWT_SECRET" value="testing-secret-key-for-jwt-auth-min-32-chars"/>
+        <env name="BCRYPT_ROUNDS" value="4"/>
+        <env name="BROADCAST_CONNECTION" value="null"/>
+        <env name="CACHE_STORE" value="array"/>
+        <env name="DB_CONNECTION" value="sqlite"/>
+        <env name="DB_DATABASE" value=":memory:"/>
+        <env name="DB_URL" value=""/>
+        <env name="MAIL_MAILER" value="array"/>
+        <env name="QUEUE_CONNECTION" value="sync"/>
+        <env name="SESSION_DRIVER" value="array"/>
+        <env name="PULSE_ENABLED" value="false"/>
+        <env name="TELESCOPE_ENABLED" value="false"/>
+        <env name="NIGHTWATCH_ENABLED" value="false"/>
+        <env name="PAYMONGO_SECRET_KEY" value="sk_test_unit"/>
+        <env name="PAYMONGO_PUBLIC_KEY" value="pk_test_unit"/>
+        <env name="PAYPAL_CLIENT_ID" value="test_client_id"/>
+        <env name="PAYPAL_CLIENT_SECRET" value="test_client_secret"/>
+    </php>
+</phpunit>

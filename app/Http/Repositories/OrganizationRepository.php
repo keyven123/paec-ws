@@ -112,15 +112,6 @@ class OrganizationRepository
         [$organizationPayload, $bankPayload] = OrganizationBankRepository::extractBankPayload($payload);
         $organizationPayload = GeneralHelper::unsetUnknownAndNullFields($organizationPayload, Organization::DATA);
 
-        // Validate bundle_tickets to ensure it doesn't include itself
-        if (isset($organizationPayload['bundle_tickets']) && is_array($organizationPayload['bundle_tickets'])) {
-            // Remove self from bundle_tickets if present
-            $organizationPayload['bundle_tickets'] = array_filter(
-                $organizationPayload['bundle_tickets'],
-                fn($ticketUuid) => $ticketUuid !== $organization->uuid
-            );
-        }
-
         $organization->update($organizationPayload);
 
         if ($bankPayload !== []) {

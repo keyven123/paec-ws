@@ -200,6 +200,9 @@ class EventController extends Controller
             $payload['event_section_uuid'] = $eventSection ? $eventSection->uuid : null;
         }
         $event = $this->eventRepository->create($payload);
+        if (array_key_exists('payment_gateway_uuids', $payload)) {
+            $event->paymentGateways()->sync($payload['payment_gateway_uuids']);
+        }
         EventLocationService::ensureDefaultLocation($event->fresh());
         $this->uploadRepository->attachEventUploads(
             $event,
@@ -272,7 +275,7 @@ class EventController extends Controller
         DB::commit();
         // Clear public events cache
         $this->clearPublicEventsCache();
-        return (new EventResource($event->fresh()))->response()->setStatusCode(201);
+        return (new EventResource($event->fresh()->load('paymentGateways')))->response()->setStatusCode(201);
     }
 
     /**
@@ -374,6 +377,9 @@ class EventController extends Controller
             'portraitImage',
             'featuredImage',
             'eventLocations.organization',
+            'paymentGateways' => fn ($query) => $query
+                ->where('status', GeneralConstants::GENERAL_STATUSES['ACTIVE'])
+                ->select(['payment_gateways.uuid', 'name', 'provider', 'environment', 'payment_channels']),
         ]);
         return (new EventShowPublicResource($event))->response();
     }
@@ -439,6 +445,9 @@ class EventController extends Controller
             }
 
             $this->eventRepository->update($event, $payload);
+            if (array_key_exists('payment_gateway_uuids', $payload)) {
+                $event->paymentGateways()->sync($payload['payment_gateway_uuids']);
+            }
             $this->uploadRepository->attachEventUploads(
                 $event->fresh(),
                 $portrait,
@@ -450,7 +459,7 @@ class EventController extends Controller
             // Clear public events cache
             $this->clearPublicEventsCache();
 
-            $event->refresh()->load(['portraitImage', 'featuredImage', 'category', 'organization', 'eventSection']);
+            $event->refresh()->load(['portraitImage', 'featuredImage', 'category', 'organization', 'eventSection', 'paymentGateways']);
 
             return (new EventResource($event))->response();
         } catch (NoEventFoundException $e) {

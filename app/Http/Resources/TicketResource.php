@@ -54,10 +54,6 @@ class TicketResource extends JsonResource
             'transferred_at' => $this->transferred_at?->format('Y-m-d H:i:s'),
             'transfer_count' => $this->transfer_count,
             'transferred_to_user' => $this->whenLoaded('transferredToUser', function () {
-                if (!$this->transferredToUser) {
-                    return null;
-                }
-
                 return [
                     'uuid' => $this->transferredToUser->uuid,
                     'name' => trim($this->transferredToUser->first_name . ' ' . $this->transferredToUser->last_name),
@@ -133,10 +129,6 @@ class TicketResource extends JsonResource
                 ];
             }),
             'venue_seat' => $this->whenLoaded('venueSeat', function () {
-                if (!$this->venueSeat) {
-                    return null;
-                }
-
                 $venue = $this->venueSeat->venue;
 
                 return [

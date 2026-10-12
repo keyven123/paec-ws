@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Customer;
 
+use App\Constants\GeneralConstants;
 use App\Helpers\ComputationHelper;
 use App\Http\Controllers\Controller;
 use App\Http\Repositories\EventRepository;
@@ -16,13 +17,17 @@ use App\Http\Requests\Customer\CheckoutTempTransactionRequest;
 use App\Http\Requests\Customer\CheckoutFreeTempTransactionRequest;
 use App\Http\Requests\Customer\CheckoutPaypalCardRequest;
 use App\Http\Requests\Customer\GuestCheckoutTempTransactionRequest;
+use App\Http\Requests\Customer\GuestPayTempTransactionRequest;
 use App\Http\Requests\Customer\GuestTempTransactionRequest;
+use App\Http\Requests\Customer\GuestTransactionPaymentRequest;
 use App\Http\Requests\Customer\ShowTempTransactionRequest;
 use App\Http\Requests\Customer\TempTransactionRequest;
 use App\Http\Requests\Customer\UpdateTempTransactionRequest;
 use App\Http\Resources\TempTransactionResource;
 use App\Jobs\SuccessPaymentProcess;
+use App\Models\AdminUser;
 use App\Models\EventTicket;
+use App\Models\PaymentGateway;
 use App\Models\TempTransaction;
 use App\Models\Transaction;
 use App\Models\User;
@@ -31,10 +36,11 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 use App\Services\MetaPixelService;
 use App\Services\Payments\PaymentServiceFactory;
+use App\Services\Payments\PayMongoService;
 use App\Services\Payments\PaymentStatusResolver;
+use App\Services\Payments\PaynamicsService;
 use App\Services\Payments\PayPalService;
 use App\Support\OrganizationPaymentMethods;
-use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -42,6 +48,8 @@ use Illuminate\Validation\ValidationException;
 
 class TempTransactionController extends Controller
 {
+    private const PAYNAMICS_CHANNEL_UNAVAILABLE = 'This payment option is not available right now. Please choose another one.';
+
     public function __construct(
         protected TempTransactionRepository $tempTransactionRepository,
         protected EventRepository $eventRepository,
@@ -94,6 +102,53 @@ class TempTransactionController extends Controller
         $this->assertGuestOwnsTempTransaction($request->validated());
 
         return $this->placeOrder($request);
+    }
+
+    /**
+     * The payment gateway must be one the activity is set up with and active.
+     */
+    private function resolveCheckoutGateway(TempTransaction $tempTransaction, ?string $gatewayUuid): ?PaymentGateway
+    {
+        if (! $gatewayUuid) {
+            return null;
+        }
+
+        $gateway = $tempTransaction->event?->paymentGateways()
+            ->where('payment_gateways.uuid', $gatewayUuid)
+            ->where('status', GeneralConstants::GENERAL_STATUSES['ACTIVE'])
+            ->first();
+
+        if (! $gateway) {
+            throw ValidationException::withMessages([
+                'payment_gateway_uuid' => ['This payment method is not available for this activity.'],
+            ]);
+        }
+
+        return $gateway;
+    }
+
+    /**
+     * Customers may only verify or cancel their own payments; admins (transactions-execute) may verify any.
+     */
+    private function assertCanManageTransaction(Transaction $transaction): void
+    {
+        $actor = request()->user();
+        if ($actor instanceof AdminUser) {
+            return;
+        }
+
+        if (! $actor || $actor->uuid !== $transaction->user_uuid) {
+            abort(403, 'You cannot access this transaction.');
+        }
+    }
+
+    private function assertGuestOwnsTransaction(Transaction $transaction, string $email): void
+    {
+        $ownerEmail = User::query()->whereKey($transaction->user_uuid)->value('email');
+
+        if (! $ownerEmail || Str::lower($ownerEmail) !== Str::lower(trim($email))) {
+            abort(404);
+        }
     }
 
     private function assertGuestOwnsTempTransaction(array $payload): void
@@ -161,9 +216,6 @@ class TempTransactionController extends Controller
             'tax_amount' => $pricing['tax_amount'],
             'total_amount' => $pricing['total_amount'],
         ];
-        if (!empty($payload['valid_until'])) {
-            $createPayload['valid_until'] = Carbon::parse($payload['valid_until'])->endOfDay()->format('Y-m-d H:i:s');
-        }
         $tempTransaction = $this->tempTransactionRepository->create($createPayload);
         $this->tempTransactionRepository
             ->createTempTransactionOrders(
@@ -315,6 +367,49 @@ class TempTransactionController extends Controller
         $payload = $request->validated();
         $tempTransaction = $this->tempTransactionRepository->fetchOrThrow('uuid', $payload['temp_transaction_uuid']);
 
+        if ($tempTransaction->user_uuid !== $request->user()?->uuid) {
+            throw ValidationException::withMessages([
+                'temp_transaction_uuid' => ['This order does not belong to your account.'],
+            ]);
+        }
+
+        return $this->startCheckout($tempTransaction, $payload);
+    }
+
+    /**
+     * Guest checkout through the activity's payment gateway: returns the hosted payment page URL.
+     */
+    public function guestCheckout(GuestPayTempTransactionRequest $request): JsonResponse
+    {
+        $payload = $request->validated();
+        $this->assertGuestOwnsTempTransaction($payload);
+        $tempTransaction = $this->tempTransactionRepository->fetchOrThrow('uuid', $payload['temp_transaction_uuid']);
+
+        return $this->startCheckout($tempTransaction, $payload);
+    }
+
+    /**
+     * @param array<string, mixed> $payload
+     */
+    private function startCheckout(TempTransaction $tempTransaction, array $payload): JsonResponse
+    {
+        $gateway = $this->resolveCheckoutGateway($tempTransaction, $payload['payment_gateway_uuid'] ?? null);
+        if ($gateway) {
+            $payload['payment_provider'] = $gateway->provider;
+        }
+
+        $isPaynamics = $payload['payment_provider'] === GeneralConstants::PAYMENT_GATEWAY_PROVIDERS['PAYNAMICS'];
+        if ($isPaynamics && empty($payload['payment_channel'])) {
+            throw ValidationException::withMessages([
+                'payment_channel' => ['Choose how you want to pay with Paynamics.'],
+            ]);
+        }
+        if ($isPaynamics && ! in_array($payload['payment_channel'], $gateway->enabledPaynamicsChannels(), true)) {
+            throw ValidationException::withMessages([
+                'payment_channel' => [self::PAYNAMICS_CHANNEL_UNAVAILABLE],
+            ]);
+        }
+
         if ($tempTransaction->promo_code_uuid) {
             $promoCode = $this->promoCodeRepository->fetchOrThrow('uuid', $tempTransaction->promo_code_uuid);
             if ($promoCode->max_use && $promoCode->used_count >= $promoCode->max_use) {
@@ -365,8 +460,15 @@ class TempTransactionController extends Controller
             $allowedPaymongoTypes = OrganizationPaymentMethods::checkoutPaymongoApiTypes($orgPaymentMethodsRaw);
             $paypalAllowed = OrganizationPaymentMethods::checkoutPaypalAllowed($orgPaymentMethodsRaw);
 
-            // Create payment using the selected provider
-            $paymentService = PaymentServiceFactory::create($payload['payment_provider']);
+            if ($gateway && $allowedPaymongoTypes === []) {
+                // The activity's own gateway is used even when the organizer has not configured methods.
+                $allowedPaymongoTypes = OrganizationPaymentMethods::defaultPaymongoCheckoutApiTypes();
+            }
+            $paypalAllowed = $paypalAllowed || $gateway !== null;
+
+            $paymentService = $gateway
+                ? PaymentServiceFactory::forGateway($gateway)
+                : PaymentServiceFactory::create($payload['payment_provider']);
 
             // Prepare payment data
             $paymentData = [
@@ -412,18 +514,31 @@ class TempTransactionController extends Controller
                 $paymentData['landing_page'] = $payload['landing_page'] ?? 'LOGIN'; // LOGIN or BILLING
                 $paymentData['shipping_preference'] = $payload['shipping_preference'] ?? 'NO_SHIPPING'; // NO_SHIPPING, GET_FROM_FILE, or SET_PROVIDED_ADDRESS
                 $paymentData['user_action'] = $payload['user_action'] ?? 'PAY_NOW'; // PAY_NOW or CONTINUE
+            } elseif ($isPaynamics) {
+                $paymentData['payment_channel'] = $payload['payment_channel'];
+                $paymentData['notification_url'] = url('/api/v1/payments/paynamics/notification');
+                $paymentData['customer'] = $result['transaction']->user?->only([
+                    'first_name', 'middle_name', 'last_name', 'email', 'phone_number',
+                    'address_line_1', 'address_line_2', 'city', 'region', 'postal_code', 'country',
+                ]) ?? [];
             }
 
             // Create payment intent/order
             $paymentResult = $paymentService->createPayment($paymentData);
 
             if (!$paymentResult['success']) {
+                if ($paymentResult['channel_unavailable'] ?? false) {
+                    throw ValidationException::withMessages([
+                        'payment_channel' => [self::PAYNAMICS_CHANNEL_UNAVAILABLE],
+                    ]);
+                }
                 throw new \Exception('Payment creation failed: ' . $paymentResult['error']);
             }
 
             $result['transaction']->update([
+                'payment_gateway_uuid' => $gateway?->uuid,
                 'payment_id' => $paymentResult['payment_id'],
-                'payment_status' => $paymentResult['status'] ?? 'pending',
+                'payment_status' => Transaction::PAYMENT_STATUS['PENDING'],
                 'payment_data' => $paymentResult['raw_response'] ?? [],
             ]);
 
@@ -458,6 +573,9 @@ class TempTransactionController extends Controller
                 if ($paymentResult['approval_url']) {
                     $response['redirect_url'] = $paymentResult['approval_url'];
                 }
+            } elseif ($isPaynamics) {
+                $response['payment']['checkout_url'] = $paymentResult['checkout_url'];
+                $response['redirect_url'] = $paymentResult['checkout_url'];
             }
 
             return response()->json($response, 201);
@@ -637,7 +755,9 @@ class TempTransactionController extends Controller
                 'success' => true,
                 'transaction' => $paidTransaction->fresh(),
                 'orders' => $result['orders'],
-                'tickets' => $result['tickets'],
+                'tickets' => $paidTransaction->tickets()
+                    ->with('eventTicket:uuid,name,price')
+                    ->get(),
                 'payment' => [
                     'provider' => 'free',
                     'status' => 'paid',
@@ -735,8 +855,73 @@ class TempTransactionController extends Controller
      */
     public function completePayment(string $transactionUuid): JsonResponse
     {
+        $transaction = Transaction::where('uuid', $transactionUuid)->firstOrFail();
+        $this->assertCanManageTransaction($transaction);
+
+        return $this->reconcileGatewayPayment($transaction);
+    }
+
+    public function guestCompletePayment(GuestTransactionPaymentRequest $request, string $transactionUuid): JsonResponse
+    {
+        $transaction = Transaction::where('uuid', $transactionUuid)->firstOrFail();
+        $this->assertGuestOwnsTransaction($transaction, $request->validated('email'));
+
+        return $this->reconcileGatewayPayment($transaction);
+    }
+
+    /**
+     * Paynamics server-to-server notification. The posted body is only used to find the order;
+     * its status always comes from the signed query API.
+     */
+    public function paynamicsNotification(Request $request): JsonResponse
+    {
+        $transaction = Transaction::query()
+            ->where('payment_provider', GeneralConstants::PAYMENT_GATEWAY_PROVIDERS['PAYNAMICS'])
+            ->where('payment_id', (string) $request->input('request_id'))
+            ->first();
+
+        if (! $transaction) {
+            return response()->json(['received' => false, 'message' => 'Unknown request_id'], 404);
+        }
+
+        $outcome = $this->reconcileGatewayPayment($transaction)->getData(true);
+
+        return response()->json([
+            'received' => true,
+            'payment_status' => $transaction->fresh()->payment_status,
+            'message' => $outcome['message'] ?? null,
+        ]);
+    }
+
+    public function guestCancelPayment(GuestTransactionPaymentRequest $request, string $transactionUuid): JsonResponse
+    {
+        $transaction = Transaction::where('uuid', $transactionUuid)->firstOrFail();
+        $this->assertGuestOwnsTransaction($transaction, $request->validated('email'));
+
+        return $this->cancelTransactionPayment($transaction);
+    }
+
+    /**
+     * Check the transaction against its payment gateway and issue the tickets once it is paid.
+     */
+    private function reconcileGatewayPayment(Transaction $transaction): JsonResponse
+    {
         try {
-            $transaction = Transaction::where('uuid', $transactionUuid)->firstOrFail();
+            if ($transaction->payment_status === Transaction::PAYMENT_STATUS['PAID']) {
+                return $this->paidTransactionResponse($transaction, 'Payment already completed');
+            }
+
+            if (in_array($transaction->payment_status, [
+                Transaction::PAYMENT_STATUS['CANCELLED'],
+                Transaction::PAYMENT_STATUS['FAILED'],
+            ], true)) {
+                return response()->json([
+                    'success' => false,
+                    'payment_status' => $transaction->payment_status,
+                    'transaction' => $transaction,
+                    'message' => 'This order was cancelled and no payment was taken. Please start a new order.',
+                ]);
+            }
 
             // Handle free tickets - bypass payment verification
             if ($transaction->payment_provider === 'free' && $transaction->total_amount == 0) {
@@ -749,8 +934,7 @@ class TempTransactionController extends Controller
             }
 
 
-            // Get payment service for the provider
-            $paymentService = PaymentServiceFactory::create($transaction->payment_provider);
+            $paymentService = PaymentServiceFactory::forTransaction($transaction);
 
             // Check payment status
             $paymentStatus = $paymentService->getPaymentStatus($transaction->payment_id);
@@ -854,24 +1038,18 @@ class TempTransactionController extends Controller
 
             $paidTransaction = $transaction->fresh();
 
+            // Fulfil synchronously so the confirmation page can show the issued QR codes.
             $handler = $this->checkoutHandlerRegistry->resolveFor($paidTransaction);
             if ($handler) {
-                $handler->handlePaid($paidTransaction);
+                $handler->handlePaid($paidTransaction, syncFulfillment: true);
+            } else {
+                SuccessPaymentProcess::dispatchSync($paidTransaction->uuid);
             }
 
-            return response()->json([
-                'success' => true,
-                'payment_status' => $gatewayStatus,
-                'transaction' => $paidTransaction->load([
-                    'event',
-                    'transactionOrders.eventTicket',
-                    'user',
-                ]),
-                'message' => 'Payment completed successfully',
-            ]);
+            return $this->paidTransactionResponse($paidTransaction, 'Payment completed successfully', $gatewayStatus);
         } catch (\Exception $e) {
             Log::error('Payment completion failed', [
-                'transaction_uuid' => $transactionUuid,
+                'transaction_uuid' => $transaction->uuid,
                 'error' => $e->getMessage()
             ]);
 
@@ -882,9 +1060,56 @@ class TempTransactionController extends Controller
         }
     }
 
+    private function paidTransactionResponse(Transaction $transaction, string $message, ?string $gatewayStatus = null): JsonResponse
+    {
+        $transaction = $transaction->fresh();
+
+        return response()->json([
+            'success' => true,
+            'payment_status' => $gatewayStatus ?? $transaction->payment_status,
+            'transaction' => $transaction->load([
+                'event',
+                'transactionOrders.eventTicket',
+                'user',
+            ]),
+            'tickets' => $transaction->tickets()
+                ->with('eventTicket:uuid,name,price')
+                ->get(),
+            'message' => $message,
+        ]);
+    }
+
     public function cancelPayment(string $transactionUuid): JsonResponse
     {
         $transaction = Transaction::where('uuid', $transactionUuid)->firstOrFail();
+        $this->assertCanManageTransaction($transaction);
+
+        return $this->cancelTransactionPayment($transaction);
+    }
+
+    private function cancelTransactionPayment(Transaction $transaction): JsonResponse
+    {
+        if ($transaction->payment_status === Transaction::PAYMENT_STATUS['PAID']) {
+            return response()->json([
+                'success' => false,
+                'payment_status' => $transaction->payment_status,
+                'message' => 'This order is already paid and cannot be cancelled here.',
+            ], 409);
+        }
+
+        if ($transaction->payment_status === Transaction::PAYMENT_STATUS['CANCELLED']) {
+            return response()->json([
+                'success' => true,
+                'transaction' => $transaction,
+                'message' => 'Payment cancelled successfully',
+            ]);
+        }
+
+        if ($this->expireGatewayCheckout($transaction)) {
+            // The customer finished paying on the gateway before cancelling; honour the payment.
+            return $this->reconcileGatewayPayment($transaction);
+        }
+
         $transaction->update([
             'status' => Transaction::STATUS['CANCELLED'],
             'payment_status' => Transaction::PAYMENT_STATUS['CANCELLED'],
@@ -909,6 +1134,41 @@ class TempTransactionController extends Controller
             'transaction' => $freshTransaction,
             'message' => 'Payment cancelled successfully'
         ]);
+    }
+
+    /**
+     * Best-effort: stop the gateway from accepting payment for this order (PayMongo expires the
+     * hosted checkout session; uncaptured PayPal orders lapse on their own; Paynamics links expire,
+     * so it is only asked whether the customer already paid).
+     *
+     * @return bool True when the gateway reports the order is already paid.
+     */
+    private function expireGatewayCheckout(Transaction $transaction): bool
+    {
+        if (empty($transaction->payment_id) || ! in_array($transaction->payment_provider, [
+            GeneralConstants::PAYMENT_PROVIDERS['PAYMONGO'],
+            GeneralConstants::PAYMENT_GATEWAY_PROVIDERS['PAYNAMICS'],
+        ], true)) {
+            return false;
+        }
+
+        try {
+            $service = PaymentServiceFactory::forTransaction($transaction);
+            if ($service instanceof PaynamicsService) {
+                return ($service->getPaymentStatus($transaction->payment_id)['status'] ?? null) === 'paid';
+            }
+
+            $result = $service instanceof PayMongoService ? $service->cancelPayment($transaction->payment_id) : [];
+
+            return (bool) ($result['already_paid'] ?? false);
+        } catch (\Throwable $e) {
+            Log::warning('Failed to expire gateway checkout', [
+                'transaction_uuid' => $transaction->uuid,
+                'error' => $e->getMessage(),
+            ]);
+
+            return false;
+        }
     }
 
     /**

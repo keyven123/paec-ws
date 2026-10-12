@@ -239,7 +239,7 @@ class OrganizerPnLService
             if ($curStart->gt($curEnd)) {
                 throw new InvalidArgumentException('Custom start date must be on or before end date.');
             }
-            $nDays = $curStart->diffInDays($curEnd) + 1;
+            $nDays = (int) $curStart->diffInDays($curEnd) + 1;
             $prevEnd = $curStart->copy()->subDay()->endOfDay();
             $prevStart = $prevEnd->copy()->subDays(max(0, $nDays - 1))->startOfDay();
 

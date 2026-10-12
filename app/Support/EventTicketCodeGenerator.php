@@ -24,9 +24,6 @@ final class EventTicketCodeGenerator
 
         for ($attempt = 0; $attempt < 50; $attempt++) {
             $code = $base . '-' . strtoupper(Str::random(4));
-            if (strlen($code) > 255) {
-                $code = substr($code, 0, 255);
-            }
             $exists = EventTicket::query()
                 ->where('event_uuid', $eventUuid)
                 ->where('code', $code)

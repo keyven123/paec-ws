@@ -86,11 +86,6 @@ class SendEventReminders extends Command
         foreach ($groups as $groupKey => $transactions) {
             $transaction = $transactions->first();
             try {
-                if ($transaction === null) {
-                    $totalSkipped++;
-                    continue;
-                }
-
                 $eventStart = $this->resolveEventStart($transaction, $timezone);
                 if ($eventStart === null) {
                     $totalSkipped++;
@@ -238,9 +233,7 @@ class SendEventReminders extends Command
             return null;
         }
 
-        $dateString = $schedule->date_from instanceof Carbon
-            ? $schedule->date_from->format('Y-m-d')
-            : Carbon::parse($schedule->date_from)->format('Y-m-d');
+        $dateString = $schedule->date_from->format('Y-m-d');
 
         $timeString = $transaction->scheduleTime?->time_start ?? '00:00:00';
 

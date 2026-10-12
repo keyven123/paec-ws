@@ -11,6 +11,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
@@ -415,6 +416,19 @@ class Event extends Model implements Blockable
     public function organization()
     {
         return $this->belongsTo(Organization::class, 'organization_uuid', 'uuid');
+    }
+
+    /**
+     * Payment gateways (and therefore keys) checkout uses for this activity; at most one per provider.
+     */
+    public function paymentGateways(): BelongsToMany
+    {
+        return $this->belongsToMany(
+            PaymentGateway::class,
+            'event_payment_gateway',
+            'event_uuid',
+            'payment_gateway_uuid',
+        )->withTimestamps();
     }
 
     public function eventLocations(): HasMany

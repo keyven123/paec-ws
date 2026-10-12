@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Helpers\GeneralHelper;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -35,9 +36,11 @@ class Transaction extends Model
         'affiliate_partner_uuid',
         'payment_order_id', // Existing field for backward compatibility
         'payment_provider', // Existing field
+        'payment_gateway_uuid',
         'payment_id', // New field - generic payment ID from any provider
         'payment_data', // New field - JSON field to store raw payment response
         'order_number',
+        'qr_code',
         'total_amount',
         'sub_total',
         'markup_type',
@@ -82,9 +85,11 @@ class Transaction extends Model
         'affiliate_partner_uuid',
         'payment_order_id', // Existing field
         'payment_provider', // Existing field
+        'payment_gateway_uuid',
         'payment_id', // New field - generic payment ID from any provider
         'payment_data', // New field - JSON field to store raw payment response
         'order_number',
+        'qr_code',
         'total_amount',
         'sub_total',
         'markup_type',
@@ -122,6 +127,29 @@ class Transaction extends Model
         'CONFIRMED' => 'confirmed',
         'CANCELLED' => 'cancelled',
     ];
+
+    const ORDER_QR_PREFIX = 'ORDER_';
+
+    protected static function booted(): void
+    {
+        static::creating(function (Transaction $transaction) {
+            if (empty($transaction->qr_code)) {
+                $transaction->qr_code = self::generateOrderQrCode();
+            }
+        });
+    }
+
+    /**
+     * Order-level ("group") QR value; scanning it admits every ticket in the order.
+     */
+    public static function generateOrderQrCode(): string
+    {
+        do {
+            $qrCode = self::ORDER_QR_PREFIX . GeneralHelper::shortUuid(12);
+        } while (self::withTrashed()->where('qr_code', $qrCode)->exists());
+
+        return $qrCode;
+    }
 
     /**
      * Scope for filtering records

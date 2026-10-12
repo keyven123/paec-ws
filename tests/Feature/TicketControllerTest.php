@@ -691,4 +691,134 @@ class TicketControllerTest extends TestCase
         $ticket->refresh();
         $this->assertNotNull($ticket->used_at);
     }
+
+    private function createOrderWithTickets(int $count, array $transactionAttributes = []): Transaction
+    {
+        $transaction = Transaction::create(array_merge([
+            'user_uuid' => $this->adminUser->uuid,
+            'event_uuid' => $this->testEvent->uuid,
+            'order_number' => 'ORD-GROUP-' . $this->faker->unique()->numerify('####'),
+            'total_amount' => 50.00 * $count,
+            'sub_total' => 50.00 * $count,
+            'tax_amount' => 0.00,
+            'discount' => 0.00,
+            'status' => 'completed',
+            'payment_status' => 'paid',
+            'order_status' => 'confirmed',
+        ], $transactionAttributes));
+
+        for ($i = 1; $i <= $count; $i++) {
+            Ticket::create([
+                'user_uuid' => $this->adminUser->uuid,
+                'transaction_uuid' => $transaction->uuid,
+                'event_uuid' => $this->testEvent->uuid,
+                'event_ticket_uuid' => $this->testEventTicket->uuid,
+                'attendee_name' => 'Group Guest',
+                'attendee_email' => 'group@example.com',
+                'qr_code' => "QR-GROUP-{$transaction->order_number}-{$i}",
+                'status' => 'active',
+            ]);
+        }
+
+        return $transaction;
+    }
+
+    #[\PHPUnit\Framework\Attributes\Test]
+    public function newOrdersGetAnOrderQrCode(): void
+    {
+        $transaction = $this->createOrderWithTickets(1);
+
+        $this->assertStringStartsWith(Transaction::ORDER_QR_PREFIX, $transaction->qr_code);
+        $this->assertNotSame($transaction->qr_code, $this->testTransaction->qr_code);
+    }
+
+    #[\PHPUnit\Framework\Attributes\Test]
+    public function scanningTheOrderQrListsAndAdmitsEveryUnusedTicket(): void
+    {
+        $transaction = $this->createOrderWithTickets(3);
+        $alreadyUsed = $transaction->tickets()->orderBy('qr_code')->first();
+        $alreadyUsed->update(['status' => 'used', 'used_at' => now()]);
+        $headers = ['Authorization' => 'Bearer ' . $this->adminToken];
+        $query = 'qr_code=' . $transaction->qr_code . '&event_uuid=' . $this->testEvent->uuid;
+
+        $this->withHeaders($headers)
+            ->getJson('/api/v1/tickets/order-qr/details?' . $query)
+            ->assertOk()
+            ->assertJsonPath('data.order_number', $transaction->order_number)
+            ->assertJsonPath('data.admittable_count', 2)
+            ->assertJsonCount(3, 'data.tickets');
+
+        $this->withHeaders($headers)
+            ->postJson('/api/v1/tickets/order-qr/confirm-entry', [
+                'qr_code' => $transaction->qr_code,
+                'event_uuid' => $this->testEvent->uuid,
+            ])
+            ->assertOk()
+            ->assertJsonPath('admitted_count', 2)
+            ->assertJsonPath('data.admittable_count', 0);
+
+        $this->assertSame(3, $transaction->tickets()->whereNotNull('used_at')->where('status', 'used')->count());
+        $this->assertSame(2, (int) $this->testEvent->fresh()->registration_count);
+
+        $this->withHeaders($headers)
+            ->postJson('/api/v1/tickets/order-qr/confirm-entry', [
+                'qr_code' => $transaction->qr_code,
+                'event_uuid' => $this->testEvent->uuid,
+            ])
+            ->assertStatus(409);
+    }
+
+    #[\PHPUnit\Framework\Attributes\Test]
+    public function orderQrScansRespectTheEntryWindowAndPaymentStatus(): void
+    {
+        $schedule = Schedule::create([
+            'event_uuid' => $this->testEvent->uuid,
+            'date_from' => '2025-04-17',
+            'date_to' => '2025-04-17',
+            'status' => 'published',
+        ]);
+        $scheduleTime = ScheduleTime::create([
+            'schedule_uuid' => $schedule->uuid,
+            'time_start' => '20:00:00',
+            'time_end' => '22:00:00',
+            'status' => 'published',
+        ]);
+        $restricted = $this->createOrderWithTickets(2, [
+            'schedule_uuid' => $schedule->uuid,
+            'schedule_time_uuid' => $scheduleTime->uuid,
+        ]);
+        $unpaid = $this->createOrderWithTickets(2, ['payment_status' => 'pending']);
+        Carbon::setTestNow(Carbon::parse('2025-04-17 17:30:00', config('app.timezone', 'UTC')));
+        $headers = ['Authorization' => 'Bearer ' . $this->adminToken];
+
+        $this->withHeaders($headers)
+            ->postJson('/api/v1/tickets/order-qr/confirm-entry', ['qr_code' => $restricted->qr_code])
+            ->assertStatus(403)
+            ->assertJsonPath('code', 'schedule_not_started');
+        $this->assertSame(0, $restricted->tickets()->whereNotNull('used_at')->count());
+
+        $this->withHeaders($headers)
+            ->getJson('/api/v1/tickets/order-qr/details?qr_code=' . $restricted->qr_code)
+            ->assertStatus(403)
+            ->assertJsonPath('code', 'schedule_not_started')
+            ->assertJsonPath('data.order_number', $restricted->order_number)
+            ->assertJsonCount(2, 'data.tickets')
+            ->assertJsonPath('data.tickets.0.entry_restriction', 'schedule_not_started');
+
+        $this->withHeaders($headers)
+            ->getJson('/api/v1/tickets/order-qr/details?qr_code=' . $unpaid->qr_code)
+            ->assertNotFound();
+
+        $this->withHeaders($headers)
+            ->getJson('/api/v1/tickets/order-qr/details?qr_code=' . $restricted->qr_code . '&event_uuid=' . Event::create([
+                'event_name' => 'Other Event',
+                'event_description' => 'Other',
+                'contact_email' => 'other@event.com',
+                'event_type' => Event::EVENT_TYPES['SINGLE'],
+                'schedule_type' => Event::SCHEDULE_TYPES['SINGLE'],
+                'event_config' => Event::EVENT_CONFIGS['SEAT_SELECTION'],
+                'status' => GeneralConstants::GENERAL_STATUSES['ACTIVE'],
+            ])->uuid)
+            ->assertNotFound();
+    }
 }

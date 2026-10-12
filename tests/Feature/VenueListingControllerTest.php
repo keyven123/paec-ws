@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Constants\GeneralConstants;
 use App\Models\Organization;
 use App\Models\Role;
+use App\Models\Upload;
 use App\Models\User;
 use App\Models\VenueInquiry;
 use App\Models\VenueListing;
@@ -178,7 +179,8 @@ class VenueListingControllerTest extends TestCase
     #[Test]
     public function it_hides_customer_contact_details_for_open_and_cancelled_merchant_inquiries(): void
     {
-        $listing = $this->createVenueListing();
+        [$merchantHeaders, $organization] = $this->createVenueListingMerchantAuth();
+        $listing = $this->createVenueListing(['organization_uuid' => $organization->uuid]);
 
         $openInquiry = VenueInquiry::factory()->create([
             'venue_listing_uuid' => $listing->uuid,
@@ -201,7 +203,7 @@ class VenueListingControllerTest extends TestCase
             'status' => VenueInquiry::STATUSES['DEPOSIT_PAID'],
         ]);
 
-        $response = $this->withHeaders($this->withVenueAdminHeaders())
+        $response = $this->withHeaders($merchantHeaders)
             ->getJson('/api/v1/venue-listings/' . $listing->uuid . '/inquiries?per_page=50');
 
         $response->assertOk();
@@ -214,6 +216,32 @@ class VenueListingControllerTest extends TestCase
         $this->assertNull($records[$cancelledInquiry->uuid]['phone']);
         $this->assertSame('visible-paid@test.com', $records[$revealedInquiry->uuid]['email']);
         $this->assertSame('09170000003', $records[$revealedInquiry->uuid]['phone']);
+    }
+
+    #[Test]
+    public function it_shows_customer_contact_details_to_platform_admins_for_every_status(): void
+    {
+        $listing = $this->createVenueListing();
+
+        $openInquiry = VenueInquiry::factory()->create([
+            'venue_listing_uuid' => $listing->uuid,
+            'email' => 'open@test.com',
+            'phone' => '09170000004',
+            'status' => VenueInquiry::STATUSES['NEW'],
+        ]);
+
+        $this->withHeaders($this->withVenueAdminHeaders())
+            ->getJson('/api/v1/venue-listings/' . $listing->uuid . '/inquiries')
+            ->assertOk()
+            ->assertJsonPath('data.0.uuid', $openInquiry->uuid)
+            ->assertJsonPath('data.0.email', 'open@test.com')
+            ->assertJsonPath('data.0.phone', '09170000004');
+
+        $this->withHeaders($this->withVenueAdminHeaders())
+            ->getJson('/api/v1/venue-listings/inquiries/' . $openInquiry->uuid)
+            ->assertOk()
+            ->assertJsonPath('data.email', 'open@test.com')
+            ->assertJsonPath('data.phone', '09170000004');
     }
 
     #[Test]
@@ -260,6 +288,28 @@ class VenueListingControllerTest extends TestCase
         $this->assertSoftDeleted('venue_listings', [
             'uuid' => $listing->uuid,
         ]);
+    }
+
+    #[Test]
+    public function it_releases_the_slug_of_a_deleted_venue_listing(): void
+    {
+        $organization = Organization::factory()->create();
+        $listing = $this->createVenueListing(['slug' => 'reused-hall']);
+
+        $this->withHeaders($this->withVenueAdminHeaders())
+            ->deleteJson('/api/v1/venue-listings/' . $listing->uuid)
+            ->assertNoContent();
+
+        $this->withHeaders($this->withVenueAdminHeaders())
+            ->postJson('/api/v1/venue-listings', [
+                'organization_uuid' => $organization->uuid,
+                'name' => 'Reused Hall',
+                'slug' => 'reused-hall',
+                'city' => 'Makati City',
+                'venue_type' => 'Function hall',
+            ])
+            ->assertCreated()
+            ->assertJsonPath('data.slug', 'reused-hall');
     }
 
     #[Test]
@@ -506,6 +556,82 @@ class VenueListingControllerTest extends TestCase
             ->assertJsonPath('data.packages.0.label', 'Half day (Morning)')
             ->assertJsonPath('data.packages.2.label', 'Full-day (8 hrs)')
             ->assertJsonPath('data.default_package_id', 'full-day');
+    }
+
+    #[Test]
+    public function it_attaches_uploaded_images_on_create_and_update(): void
+    {
+        $organization = Organization::factory()->create();
+        [$cover, $galleryA, $galleryB, $newCover] = array_map(
+            fn (int $index) => $this->createLooseUpload("https://example.com/image-{$index}.jpg"),
+            [0, 1, 2, 3],
+        );
+
+        $uuid = $this->withHeaders($this->withVenueAdminHeaders())
+            ->postJson('/api/v1/venue-listings', [
+                'organization_uuid' => $organization->uuid,
+                'name' => 'Photo Hall',
+                'city' => 'Pasig City',
+                'venue_type' => 'Function hall',
+                'featured_upload_uuid' => $cover->uuid,
+                'gallery_upload_uuids' => [$galleryA->uuid, $galleryB->uuid],
+            ])
+            ->assertCreated()
+            ->assertJsonPath('data.featured_upload_uuid', $cover->uuid)
+            ->assertJsonPath('data.featured_image_url', 'https://example.com/image-0.jpg')
+            ->assertJsonPath('data.gallery_upload_uuids', [$galleryA->uuid, $galleryB->uuid])
+            ->json('data.uuid');
+
+        $this->withHeaders($this->withVenueAdminHeaders())
+            ->putJson('/api/v1/venue-listings/' . $uuid, [
+                'featured_upload_uuid' => $newCover->uuid,
+                'gallery_upload_uuids' => [$galleryB->uuid],
+            ])
+            ->assertOk()
+            ->assertJsonPath('data.featured_upload_uuid', $newCover->uuid)
+            ->assertJsonPath('data.gallery_upload_uuids', [$galleryB->uuid]);
+
+        $this->assertDatabaseHas('uploads', ['uuid' => $cover->uuid, 'uploadable_uuid' => null]);
+        $this->assertDatabaseHas('uploads', ['uuid' => $galleryA->uuid, 'uploadable_uuid' => null]);
+        $this->assertDatabaseHas('uploads', [
+            'uuid' => $galleryB->uuid,
+            'uploadable_uuid' => $uuid,
+            'collection' => 'gallery',
+            'order_number' => 0,
+        ]);
+    }
+
+    #[Test]
+    public function it_does_not_claim_images_owned_by_another_listing(): void
+    {
+        $other = $this->createVenueListing();
+        $this->attachListingImages($other);
+        $foreignCoverUuid = $other->featuredImage()->value('uuid');
+
+        $listing = $this->createVenueListing();
+
+        $this->withHeaders($this->withVenueAdminHeaders())
+            ->putJson('/api/v1/venue-listings/' . $listing->uuid, [
+                'featured_upload_uuid' => $foreignCoverUuid,
+            ])
+            ->assertOk()
+            ->assertJsonPath('data.featured_upload_uuid', null);
+
+        $this->assertDatabaseHas('uploads', [
+            'uuid' => $foreignCoverUuid,
+            'uploadable_uuid' => $other->uuid,
+        ]);
+    }
+
+    private function createLooseUpload(string $url): Upload
+    {
+        return Upload::create([
+            'type' => 'image',
+            'mime_type' => 'image/jpeg',
+            'extension' => 'jpg',
+            'disk' => 'public',
+            'path' => $url,
+        ]);
     }
 
     #[Test]

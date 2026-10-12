@@ -14,6 +14,7 @@ use App\Services\VenueListingAvailabilityService;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\QueryException;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
@@ -63,63 +64,136 @@ class BlockedDateController extends Controller
         $blockable = $this->resolveBlockable($request, $uuid);
         $payload = $request->validated();
 
-        $blockedDate = Carbon::parse($payload['blocked_date'])->toDateString();
+        $startDate = Carbon::parse($payload['blocked_date'])->startOfDay();
+        $endDate = isset($payload['blocked_date_end'])
+            ? Carbon::parse($payload['blocked_date_end'])->startOfDay()
+            : $startDate->copy();
+        $reason = $payload['reason'] ?? null;
+
+        if ($startDate->equalTo($endDate)) {
+            return $this->storeSingleDate($blockable, $startDate->toDateString(), $reason);
+        }
+
+        if ($startDate->diffInDays($endDate) + 1 > StoreBlockedDateRequest::MAX_RANGE_DAYS) {
+            return response()->json([
+                'success' => false,
+                'message' => 'You can block up to ' . StoreBlockedDateRequest::MAX_RANGE_DAYS . ' days at a time.',
+            ], 422);
+        }
+
+        return $this->storeDateRange($blockable, $startDate, $endDate, $reason);
+    }
+
+    private function storeSingleDate(Model $blockable, string $date, ?string $reason): JsonResponse
+    {
+        $result = $this->blockDate($blockable, $date, $reason);
+
+        return match ($result['status']) {
+            'conflict' => response()->json([
+                'success' => false,
+                'message' => 'There are existing tickets scheduled for this date.',
+            ], 422),
+            'exists' => response()->json([
+                'success' => false,
+                'message' => 'This date is already blocked.',
+            ], 422),
+            default => (new BlockedDateResource($result['record']))->response()->setStatusCode(201),
+        };
+    }
+
+    private function storeDateRange(Model $blockable, Carbon $startDate, Carbon $endDate, ?string $reason): JsonResponse
+    {
+        $blocked = [];
+        $skipped = [];
+
+        DB::transaction(function () use ($blockable, $startDate, $endDate, $reason, &$blocked, &$skipped) {
+            for ($day = $startDate->copy(); $day->lte($endDate); $day->addDay()) {
+                $date = $day->toDateString();
+                $result = $this->blockDate($blockable, $date, $reason);
+
+                if ($result['record'] !== null) {
+                    $blocked[] = $result['record'];
+                    continue;
+                }
+
+                $skipped[] = [
+                    'date' => $date,
+                    'reason' => $result['status'] === 'conflict'
+                        ? 'Has existing tickets'
+                        : 'Already blocked',
+                ];
+            }
+        });
+
+        if ($blocked === []) {
+            return response()->json([
+                'success' => false,
+                'message' => 'No dates were blocked. Every date in this range is already blocked or has existing tickets.',
+                'skipped' => $skipped,
+            ], 422);
+        }
+
+        return response()->json([
+            'success' => true,
+            'data' => BlockedDateResource::collection(collect($blocked))->resolve(),
+            'skipped' => $skipped,
+        ], 201);
+    }
+
+    /**
+     * Block one date for the given resource.
+     *
+     * @return array{status: 'created'|'restored'|'exists'|'conflict', record: Model|null}
+     */
+    private function blockDate(Model $blockable, string $date, ?string $reason): array
+    {
         $blockableType = $blockable->getMorphClass();
         $blockableUuid = $blockable->getKey();
 
-        if ($blockable instanceof Blockable && $blockable->hasBlockedDateConflict($blockedDate)) {
-            return response()->json([
-                'success' => false,
-                'message' => 'There are existing tickets scheduled for this date.',
-            ], 422);
+        if ($blockable instanceof Blockable && $blockable->hasBlockedDateConflict($date)) {
+            return ['status' => 'conflict', 'record' => null];
         }
 
         // Restore a previously soft-deleted record for the same date if present.
         $softDeletedRecord = $this->blockedDateRepository->findSoftDeleted(
             $blockableType,
             $blockableUuid,
-            $blockedDate
+            $date
         );
 
         if ($softDeletedRecord) {
             $this->blockedDateRepository->restore($softDeletedRecord);
-            if (isset($payload['reason'])) {
-                $this->blockedDateRepository->update($softDeletedRecord, [
-                    'reason' => $payload['reason'],
-                ]);
+            if ($reason !== null) {
+                $this->blockedDateRepository->update($softDeletedRecord, ['reason' => $reason]);
             }
-            return (new BlockedDateResource($softDeletedRecord->fresh()))->response()->setStatusCode(201);
+
+            return ['status' => 'restored', 'record' => $softDeletedRecord->fresh()];
         }
 
         $existingRecord = $this->blockedDateRepository->getAll([
             'blockable_type' => $blockableType,
             'blockable_uuid' => $blockableUuid,
-        ])->whereDate('blocked_date', $blockedDate)->first();
+        ])->whereDate('blocked_date', $date)->first();
 
         if ($existingRecord) {
-            return response()->json([
-                'success' => false,
-                'message' => 'This date is already blocked.',
-            ], 422);
+            return ['status' => 'exists', 'record' => null];
         }
 
         try {
             $record = $this->blockedDateRepository->create([
                 'blockable_type' => $blockableType,
                 'blockable_uuid' => $blockableUuid,
-                'blocked_date' => $payload['blocked_date'],
-                'reason' => $payload['reason'] ?? null,
+                'blocked_date' => $date,
+                'reason' => $reason,
             ]);
-            return (new BlockedDateResource($record))->response()->setStatusCode(201);
+
+            return ['status' => 'created', 'record' => $record];
         } catch (QueryException $e) {
             $isDuplicate = ($e->errorInfo[1] ?? null) === 1062
                 || str_contains($e->getMessage(), 'UNIQUE constraint failed');
 
             if ($isDuplicate) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'This date is already blocked.',
-                ], 422);
+                return ['status' => 'exists', 'record' => null];
             }
             throw $e;
         }

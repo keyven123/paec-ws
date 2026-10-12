@@ -82,10 +82,17 @@ class GuestCheckoutTest extends TestCase
 
         $this->assertSame(1, EventLocation::where('event_uuid', $this->event->uuid)->count());
 
-        $this->postJson('/api/v1/public/temp-transactions/guest/place-order', [
+        $placed = $this->postJson('/api/v1/public/temp-transactions/guest/place-order', [
             'temp_transaction_uuid' => $temp['uuid'],
             'email' => 'GUEST.buyer@example.com',
         ])->assertStatus(201)->assertJson(['success' => true]);
+
+        $placed->assertJsonCount(2, 'tickets');
+        foreach ($placed->json('tickets') as $ticket) {
+            $this->assertSame(GeneralConstants::TICKET_STATUSES['ACTIVE'], $ticket['status']);
+            $this->assertNotEmpty($ticket['qr_code']);
+            $this->assertNotEmpty($ticket['event_ticket']['name']);
+        }
 
         $guest = User::where('email', 'guest.buyer@example.com')->firstOrFail();
         $this->assertSame(User::GUEST_PROVIDER, $guest->provider);

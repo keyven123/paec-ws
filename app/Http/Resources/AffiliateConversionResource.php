@@ -36,10 +36,6 @@ class AffiliateConversionResource extends JsonResource
                 ];
             }),
             'ticket' => $this->whenLoaded('ticket', function () {
-                if (!$this->ticket) {
-                    return null;
-                }
-
                 return [
                     'uuid' => $this->ticket->uuid,
                     'ticket_number' => $this->ticket->ticket_number,

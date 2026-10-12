@@ -13,11 +13,14 @@ class PayMongoService implements PaymentServiceInterface
     private string $webhookSecret;
     private string $baseUrl = 'https://api.paymongo.com/v1';
 
-    public function __construct()
+    /**
+     * Keys default to the platform account in .env; an activity's payment gateway passes its own.
+     */
+    public function __construct(?string $secretKey = null, ?string $publicKey = null, ?string $webhookSecret = null)
     {
-        $this->secretKey = trim((string) (config('services.paymongo.secret_key') ?? ''));
-        $this->publicKey = trim((string) (config('services.paymongo.public_key') ?? ''));
-        $this->webhookSecret = trim((string) (config('services.paymongo.webhook_secret') ?? ''));
+        $this->secretKey = trim((string) ($secretKey ?? config('services.paymongo.secret_key') ?? ''));
+        $this->publicKey = trim((string) ($publicKey ?? config('services.paymongo.public_key') ?? ''));
+        $this->webhookSecret = trim((string) ($webhookSecret ?? config('services.paymongo.webhook_secret') ?? ''));
     }
 
     /**
@@ -225,6 +228,56 @@ class PayMongoService implements PaymentServiceInterface
     }
 
     /**
+     * Expire a hosted checkout session so the customer can no longer pay it.
+     *
+     * A session that is already paid cannot be expired (PayMongo returns
+     * resource_state_error); that is surfaced as already_paid so callers
+     * know not to release the inventory.
+     *
+     * @param string $paymentId Checkout session id (cs_...)
+     * @return array{success: bool, already_paid?: bool, already_expired?: bool, skipped?: bool, error?: string, raw_response?: mixed}
+     */
+    public function cancelPayment(string $paymentId): array
+    {
+        try {
+            $this->ensureSecretKeyConfigured();
+
+            if (! str_starts_with($paymentId, 'cs_')) {
+                return [
+                    'success' => false,
+                    'skipped' => true,
+                    'error' => "Unsupported PayMongo payment id for cancellation: {$paymentId}",
+                ];
+            }
+
+            $response = Http::withBasicAuth($this->secretKey, '')
+                ->post("{$this->baseUrl}/checkout_sessions/{$paymentId}/expire");
+
+            if ($response->failed()) {
+                $body = $response->json();
+                $detail = strtolower((string) ($body['errors'][0]['detail'] ?? $response->body()));
+                $code = (string) ($body['errors'][0]['code'] ?? '');
+
+                if (str_contains($detail, 'expired')) {
+                    return ['success' => true, 'already_expired' => true, 'raw_response' => $body];
+                }
+
+                if (str_contains($detail, 'paid') || $code === 'resource_state_error') {
+                    return ['success' => false, 'already_paid' => true, 'raw_response' => $body];
+                }
+
+                throw new Exception('PayMongo expire checkout session error: ' . $response->body());
+            }
+
+            return ['success' => true, 'raw_response' => $response->json()];
+        } catch (Exception $e) {
+            Log::error('PayMongo cancelPayment error: ' . $e->getMessage(), ['payment_id' => $paymentId]);
+
+            return ['success' => false, 'error' => $e->getMessage()];
+        }
+    }
+
+    /**
      * Refund a payment
      *
      * @param string $paymentId
@@ -401,13 +454,9 @@ class PayMongoService implements PaymentServiceInterface
      */
     public function verifyWebhook(string $payload, string $signature): bool
     {
-        try {
-            $computedSignature = hash_hmac('sha256', $payload, $this->webhookSecret);
-            return hash_equals($signature, $computedSignature);
-        } catch (Exception $e) {
-            Log::error('PayMongo webhook verification error: ' . $e->getMessage());
-            return false;
-        }
+        $computedSignature = hash_hmac('sha256', $payload, $this->webhookSecret);
+
+        return hash_equals($signature, $computedSignature);
     }
 
     /**

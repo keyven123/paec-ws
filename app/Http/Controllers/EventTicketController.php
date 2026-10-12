@@ -156,6 +156,7 @@ class EventTicketController extends Controller
             throw new ActionNotAllowedException('Cannot delete event ticket with sold tickets.');
         }
         $this->eventTicketRepository->delete($eventTicket);
+        $this->clearPublicEventsCache();
         return $this->noContent();
     }
 

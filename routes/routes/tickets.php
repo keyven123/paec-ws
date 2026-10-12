@@ -10,6 +10,13 @@ Route::group(['prefix' => 'tickets'], function () {
     Route::post('/', [TicketController::class, 'store'])
         ->middleware('can:tickets-create');
 
+    // Order (group) QR scanner routes; registered before {uuid} routes so "order-qr" is not read as a ticket uuid
+    Route::get('order-qr/details', [TicketController::class, 'getOrderDetailsByQrCode'])
+        ->middleware('can:event-scanner-create');
+
+    Route::post('order-qr/confirm-entry', [TicketController::class, 'confirmOrderEntry'])
+        ->middleware('can:event-scanner-create');
+
     Route::get('{uuid}', [TicketController::class, 'show'])
         ->middleware('can:tickets-view');
 

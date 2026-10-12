@@ -143,6 +143,97 @@ class BlockedDateRoutesTest extends TestCase
     }
 
     #[Test]
+    public function it_blocks_every_day_in_a_date_range(): void
+    {
+        $listing = $this->createVenueListing();
+
+        $response = $this->withHeaders($this->withVenueAdminHeaders())
+            ->postJson('/api/v1/venue-listings/' . $listing->uuid . '/blocked-dates', [
+                'blocked_date' => '2032-01-10',
+                'blocked_date_end' => '2032-01-14',
+                'reason' => 'Renovation',
+            ]);
+
+        $response->assertStatus(201)
+            ->assertJsonCount(5, 'data')
+            ->assertJsonPath('data.0.blocked_date', '2032-01-10')
+            ->assertJsonPath('data.4.blocked_date', '2032-01-14')
+            ->assertJsonPath('skipped', []);
+
+        $this->assertDatabaseCount('blocked_dates', 5);
+    }
+
+    #[Test]
+    public function it_blocks_a_single_day_when_start_and_end_match(): void
+    {
+        $listing = $this->createVenueListing();
+
+        $this->withHeaders($this->withVenueAdminHeaders())
+            ->postJson('/api/v1/venue-listings/' . $listing->uuid . '/blocked-dates', [
+                'blocked_date' => '2032-01-20',
+                'blocked_date_end' => '2032-01-20',
+            ])
+            ->assertStatus(201)
+            ->assertJsonPath('data.blocked_date', '2032-01-20');
+
+        $this->assertDatabaseCount('blocked_dates', 1);
+    }
+
+    #[Test]
+    public function it_skips_already_blocked_days_in_a_range(): void
+    {
+        $listing = $this->createVenueListing();
+
+        $this->withHeaders($this->withVenueAdminHeaders())
+            ->postJson('/api/v1/venue-listings/' . $listing->uuid . '/blocked-dates', [
+                'blocked_date' => '2032-02-02',
+            ])->assertStatus(201);
+
+        $this->withHeaders($this->withVenueAdminHeaders())
+            ->postJson('/api/v1/venue-listings/' . $listing->uuid . '/blocked-dates', [
+                'blocked_date' => '2032-02-01',
+                'blocked_date_end' => '2032-02-03',
+            ])
+            ->assertStatus(201)
+            ->assertJsonCount(2, 'data')
+            ->assertJsonPath('skipped.0.date', '2032-02-02')
+            ->assertJsonPath('skipped.0.reason', 'Already blocked');
+
+        $this->assertDatabaseCount('blocked_dates', 3);
+    }
+
+    #[Test]
+    public function it_rejects_a_range_where_every_day_is_already_blocked(): void
+    {
+        $listing = $this->createVenueListing();
+        $payload = ['blocked_date' => '2032-03-01', 'blocked_date_end' => '2032-03-02'];
+
+        $this->withHeaders($this->withVenueAdminHeaders())
+            ->postJson('/api/v1/venue-listings/' . $listing->uuid . '/blocked-dates', $payload)
+            ->assertStatus(201);
+
+        $this->withHeaders($this->withVenueAdminHeaders())
+            ->postJson('/api/v1/venue-listings/' . $listing->uuid . '/blocked-dates', $payload)
+            ->assertStatus(422)
+            ->assertJsonPath('success', false)
+            ->assertJsonCount(2, 'skipped');
+    }
+
+    #[Test]
+    public function it_rejects_a_range_ending_before_it_starts(): void
+    {
+        $listing = $this->createVenueListing();
+
+        $this->withHeaders($this->withVenueAdminHeaders())
+            ->postJson('/api/v1/venue-listings/' . $listing->uuid . '/blocked-dates', [
+                'blocked_date' => '2032-04-10',
+                'blocked_date_end' => '2032-04-05',
+            ])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('blocked_date_end');
+    }
+
+    #[Test]
     public function it_returns_404_for_an_unknown_venue_listing(): void
     {
         $this->withHeaders($this->withVenueAdminHeaders())

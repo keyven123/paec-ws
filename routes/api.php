@@ -72,6 +72,9 @@ Route::prefix('v1')->group(function () {
     Route::get('/auth/facebook/redirect', [SocialAuthController::class, 'facebookRedirect']);
     Route::get('/auth/facebook/callback', [SocialAuthController::class, 'facebookCallback']);
 
+    Route::post('/payments/paynamics/notification', [TempTransactionController::class, 'paynamicsNotification'])
+        ->middleware('throttle:300,1');
+
     Route::middleware('throttle:50,1')->group(function () {
         Route::post('login', [AuthController::class, 'login'])->name('login');
         Route::post('register', [AuthController::class, 'register']);
@@ -109,6 +112,12 @@ Route::prefix('v1')->group(function () {
             Route::group(['prefix' => 'temp-transactions/guest'], function () {
                 Route::post('/', [TempTransactionController::class, 'guestTempTransaction']);
                 Route::post('place-order', [TempTransactionController::class, 'guestPlaceOrder']);
+                Route::post('checkout', [TempTransactionController::class, 'guestCheckout']);
+            });
+
+            Route::group(['prefix' => 'transactions/{transactionUuid}/guest', 'middleware' => 'throttle:30,1'], function () {
+                Route::post('complete', [TempTransactionController::class, 'guestCompletePayment']);
+                Route::post('cancel', [TempTransactionController::class, 'guestCancelPayment']);
             });
 
             Route::group(['prefix' => 'venue-listings'], function () {
@@ -169,6 +178,7 @@ Route::prefix('v1')->group(function () {
         include __DIR__.'/routes/cms.php';
         include __DIR__.'/routes/ticket-coupons.php';
         include __DIR__.'/routes/payment_gateway_rate_settings.php';
+        include __DIR__.'/routes/payment_gateways.php';
         include __DIR__.'/routes/default_payment_methods_settings.php';
         include __DIR__.'/routes/affiliate_payout_requests.php';
         include __DIR__.'/routes/merchant_payout_requests.php';

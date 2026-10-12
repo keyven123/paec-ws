@@ -4,6 +4,7 @@ namespace App\Http\Requests\Event;
 
 use App\Constants\GeneralConstants;
 use App\Http\Requests\Event\Concerns\MapsMetaPixelRequestFields;
+use App\Http\Requests\Event\Concerns\MapsPaymentGatewayRequestFields;
 use App\Models\Event;
 use App\Models\EventSection;
 use App\Services\PaecOrganizationService;
@@ -14,6 +15,7 @@ use Illuminate\Validation\Rule;
 class UpdateEventRequest extends FormRequest
 {
     use MapsMetaPixelRequestFields;
+    use MapsPaymentGatewayRequestFields;
     /**
      * Get the validation rules that apply to the request.
      *
@@ -90,7 +92,13 @@ class UpdateEventRequest extends FormRequest
                 'date_format:Y-m-d H:i:s',
                 'after_or_equal:now',
             ],
+            ...$this->paymentGatewayRules(),
         ];
+    }
+
+    public function withValidator($validator): void
+    {
+        $validator->after(fn ($validator) => $this->validatePaymentGatewayProviders($validator));
     }
 
     /**
@@ -103,6 +111,7 @@ class UpdateEventRequest extends FormRequest
         ]);
 
         $this->prepareMetaPixelFieldsForValidation();
+        $this->preparePaymentGatewayFieldsForValidation();
 
         if (!$this->filled('organization_uuid')) {
             $eventUuid = $this->route('uuid');

@@ -30,6 +30,7 @@ use App\Services\VenueListingAvailabilityService;
 use Illuminate\Support\Facades\Notification;
 use App\Models\AdminUser;
 use App\Models\ChatThread;
+use App\Models\Upload;
 use App\Models\User;
 use App\Models\VenueInquiry;
 use App\Models\VenueListing;
@@ -138,6 +139,7 @@ class VenueListingController extends Controller
         $payload = VenueListingDefaults::applyMissing($payload);
 
         $venueListing = $this->venueListingRepository->create($payload);
+        $this->syncListingImages($venueListing, $request->validated());
         $venueListing->load(['organization', 'featuredImage', 'gallery']);
 
         return (new VenueListingResource($venueListing))->response()->setStatusCode(201);
@@ -209,6 +211,7 @@ class VenueListingController extends Controller
             $venueListing = $this->venueListingRepository->fetchOrThrow('uuid', $uuid);
             $payload = VenueListingDefaults::applyMissing($payload, $venueListing);
             $this->venueListingRepository->update($venueListing, $payload);
+            $this->syncListingImages($venueListing, $request->validated());
             $venueListing->load(['organization', 'featuredImage', 'gallery']);
 
             return (new VenueListingResource($venueListing->fresh(['featuredImage', 'gallery'])))->response();
@@ -506,6 +509,57 @@ class VenueListingController extends Controller
                 'inquiry_uuid' => $inquiry->uuid,
                 'error' => $e->getMessage(),
             ]);
+        }
+    }
+
+    /**
+     * Attach uploaded images to the listing. Only uploads that are unattached or
+     * already owned by this listing can be claimed.
+     *
+     * @param VenueListing $venueListing
+     * @param array<string, mixed> $payload
+     * @return void
+     */
+    private function syncListingImages(VenueListing $venueListing, array $payload): void
+    {
+        $detach = ['uploadable_type' => null, 'uploadable_uuid' => null, 'collection' => null];
+        $claimable = fn () => Upload::query()->where(
+            fn ($query) => $query->whereNull('uploadable_uuid')
+                ->orWhere('uploadable_uuid', $venueListing->uuid),
+        );
+
+        if (array_key_exists('featured_upload_uuid', $payload)) {
+            $featuredUuid = $payload['featured_upload_uuid'];
+
+            $current = $venueListing->featuredImage();
+            if ($featuredUuid) {
+                $current->where('uuid', '!=', $featuredUuid);
+            }
+            $current->update($detach);
+
+            if ($featuredUuid) {
+                $claimable()->where('uuid', $featuredUuid)->update([
+                    'uploadable_type' => $venueListing->getMorphClass(),
+                    'uploadable_uuid' => $venueListing->uuid,
+                    'collection' => 'featured',
+                    'order_number' => 0,
+                ]);
+            }
+        }
+
+        if (array_key_exists('gallery_upload_uuids', $payload)) {
+            $galleryUuids = array_values(array_unique($payload['gallery_upload_uuids'] ?? []));
+
+            $venueListing->gallery()->whereNotIn('uuid', $galleryUuids)->update($detach);
+
+            foreach ($galleryUuids as $index => $uploadUuid) {
+                $claimable()->where('uuid', $uploadUuid)->update([
+                    'uploadable_type' => $venueListing->getMorphClass(),
+                    'uploadable_uuid' => $venueListing->uuid,
+                    'collection' => 'gallery',
+                    'order_number' => $index,
+                ]);
+            }
         }
     }
 

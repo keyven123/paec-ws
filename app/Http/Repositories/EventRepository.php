@@ -208,7 +208,7 @@ class EventRepository
      */
     public function fetchOrThrow(string $key, string $value): Event
     {
-        $event = $this->event->with(['schedules', 'eventTickets', 'portraitImage', 'featuredImage', 'venue', 'organization', 'approvedBy', 'creator', 'updater', 'eventSection', 'category', 'eventLocations'])->where($key, $value)->first();
+        $event = $this->event->with(['schedules', 'eventTickets', 'portraitImage', 'featuredImage', 'venue', 'organization', 'approvedBy', 'creator', 'updater', 'eventSection', 'category', 'eventLocations', 'paymentGateways'])->where($key, $value)->first();
 
         if (is_null($event)) {
             throw new NoEventFoundException();

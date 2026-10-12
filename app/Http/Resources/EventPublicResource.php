@@ -2,7 +2,9 @@
 
 namespace App\Http\Resources;
 
+use App\Constants\GeneralConstants;
 use App\Models\Upload;
+use App\Services\TicketMarkupService;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -59,6 +61,7 @@ class EventPublicResource extends JsonResource
                 : null,
             'affiliate_ends_at' => $this->affiliate_ends_at?->format('Y-m-d'),
             'price_start' => $this->eventTickets->min('price'),
+            ...$this->discountSummary(),
             'today_cutoff_time' => $this->formattedTodayCutoffTime(),
             'schedules' => $this->whenLoaded('schedules', function () {
                 return $this->schedules->map(function ($schedule) {
@@ -112,6 +115,51 @@ class EventPublicResource extends JsonResource
                     $this->eventLocations->where('is_active', true)->values()
                 );
             }),
+        ];
+    }
+
+    /**
+     * Lowest price after ticket discounts and the biggest saving, so listing cards can
+     * show the promo price without loading every ticket.
+     *
+     * `discount_type` is "percentage" when any ticket uses a percentage discount, otherwise
+     * "amount" so the storefront can advertise a peso saving instead.
+     *
+     * @return array{discounted_price_start: ?float, max_discount_percent: ?int, max_discount_amount: ?float, discount_type: ?string}
+     */
+    private function discountSummary(): array
+    {
+        $lowestPrice = null;
+        $maxPercent = 0;
+        $maxAmount = 0.0;
+        $hasPercentageDiscount = false;
+
+        foreach ($this->eventTickets as $ticket) {
+            $price = (float) $ticket->price;
+            $discount = min($price, TicketMarkupService::lineBaseDiscount($ticket, 1));
+            $finalPrice = round($price - $discount, 2);
+
+            $lowestPrice = $lowestPrice === null ? $finalPrice : min($lowestPrice, $finalPrice);
+
+            if ($discount > 0 && $price > 0) {
+                $maxPercent = max($maxPercent, 1, (int) round($discount / $price * 100));
+                $maxAmount = max($maxAmount, round($discount, 2));
+                $hasPercentageDiscount = $hasPercentageDiscount
+                    || $ticket->discount_type === GeneralConstants::DISCOUNT_TYPES['PERCENTAGE'];
+            }
+        }
+
+        $hasDiscount = $maxPercent > 0;
+
+        return [
+            'discounted_price_start' => $hasDiscount ? $lowestPrice : null,
+            'max_discount_percent' => $hasDiscount ? $maxPercent : null,
+            'max_discount_amount' => $hasDiscount ? $maxAmount : null,
+            'discount_type' => $hasDiscount
+                ? ($hasPercentageDiscount
+                    ? GeneralConstants::DISCOUNT_TYPES['PERCENTAGE']
+                    : GeneralConstants::DISCOUNT_TYPES['AMOUNT'])
+                : null,
         ];
     }
 }

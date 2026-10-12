@@ -99,16 +99,9 @@ class EventResource extends JsonResource
             'is_completed' => !is_null($this->completed_at),
             'is_active' => is_null($this->cancelled_at) && is_null($this->completed_at),
 
-            'has_seats' => $this->whenLoaded('venue', function () {
-                if (!$this->venue) {
-                    return false;
-                }
-                try {
-                    return $this->venue->venueSeats && $this->venue->venueSeats->count() > 0;
-                } catch (\Exception $e) {
-                    return false;
-                }
-            }, false),
+            'has_seats' => $this->relationLoaded('venue')
+                && $this->venue !== null
+                && $this->venue->venueSeats->isNotEmpty(),
 
             // Relationships
             'organization' => $this->whenLoaded('organization', function () {
@@ -160,6 +153,16 @@ class EventResource extends JsonResource
             }),
             'event_locations' => $this->whenLoaded('eventLocations', function () {
                 return EventLocationResource::collection($this->eventLocations);
+            }),
+            'payment_gateways' => $this->whenLoaded('paymentGateways', function () {
+                return $this->paymentGateways->map(fn ($gateway) => [
+                    'uuid' => $gateway->uuid,
+                    'name' => $gateway->name,
+                    'provider' => $gateway->provider,
+                    'environment' => $gateway->environment,
+                    'gateway_id' => $gateway->gateway_id,
+                    'status' => $gateway->status,
+                ])->values();
             }),
         ];
     }

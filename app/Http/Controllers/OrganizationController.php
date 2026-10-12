@@ -228,33 +228,26 @@ class OrganizationController extends Controller
             ]
         ), $org->uuid);
 
-        if ($adminUser) {
-            $adminUser->update(['email_verified_at' => now()]);
-            $org->update(['status' => GeneralConstants::ORGANIZER_STATUSES['APPROVED']]);
+        $adminUser->update(['email_verified_at' => now()]);
+        $org->update(['status' => GeneralConstants::ORGANIZER_STATUSES['APPROVED']]);
 
-            if ($initialCommission !== null) {
-                $this->organizationPlatformComService->logCommissionChange(
-                    null,
-                    $initialCommission,
-                    $org->uuid,
-                    $adminUser->uuid,
-                );
-            }
-
-            // Generate JWT token for admin user
-            $token = auth('admin')->login($adminUser);
-
-            // Update last login timestamp
-            $this->adminUserRepository->updateLastLogin($adminUser);
-            DB::commit();
-
-            return $this->respondWithToken($token, $adminUser->fresh());
-        } else {
-            return response()->json([
-                'success' => false,
-                'message' => 'Registration failed, please try again'
-            ], 400);
+        if ($initialCommission !== null) {
+            $this->organizationPlatformComService->logCommissionChange(
+                null,
+                $initialCommission,
+                $org->uuid,
+                $adminUser->uuid,
+            );
         }
+
+        // Generate JWT token for admin user
+        $token = auth('admin')->login($adminUser);
+
+        // Update last login timestamp
+        $this->adminUserRepository->updateLastLogin($adminUser);
+        DB::commit();
+
+        return $this->respondWithToken($token, $adminUser->fresh());
     }
 
     public function oldRegister(RegisterOrganizationRequest $request): JsonResponse
@@ -359,23 +352,17 @@ class OrganizationController extends Controller
             ], 400);
         }
 
-        $adminUser = $this->organizationRepository->onboardingRegister($payload, $org->uuid);
-        if ($adminUser) {
-            $org->update([
-                'status' => GeneralConstants::ORGANIZER_STATUSES['ONBOARDED'],
-                'secret' => null,
-                'secret_expired_at' => null,
-            ]);
-            return response()->json([
-                'success' => true,
-                'message' => 'Onboarding registration successful, you can now login to your account'
-            ], 200);
-        } else {
-            return response()->json([
-                'success' => false,
-                'message' => 'Onboarding registration failed, please try again'
-            ], 400);
-        }
+        $this->organizationRepository->onboardingRegister($payload, $org->uuid);
+        $org->update([
+            'status' => GeneralConstants::ORGANIZER_STATUSES['ONBOARDED'],
+            'secret' => null,
+            'secret_expired_at' => null,
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Onboarding registration successful, you can now login to your account'
+        ], 200);
     }
 
     /**

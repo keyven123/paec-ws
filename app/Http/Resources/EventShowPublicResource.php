@@ -60,6 +60,15 @@ class EventShowPublicResource extends JsonResource
             'payment_methods' => $this->whenLoaded('organization', function () {
                 return OrganizationPaymentMethods::normalize($this->organization?->payment_methods);
             }),
+            'payment_gateways' => $this->whenLoaded('paymentGateways', function () {
+                return $this->paymentGateways->map(fn ($gateway) => [
+                    'uuid' => $gateway->uuid,
+                    'name' => $gateway->name,
+                    'provider' => $gateway->provider,
+                    'environment' => $gateway->environment,
+                    'payment_channels' => $gateway->provider === 'paynamics' ? $gateway->enabledPaynamicsChannels() : null,
+                ])->values();
+            }),
             // Note: meta_pixel_key is intentionally excluded from public responses for security
             'portrait_image' => $this->whenLoaded('portraitImage', function () {
                 return [

@@ -16,10 +16,6 @@ class TransactionVenueInquiryResource extends JsonResource
             (new VenueInquiryResource($this->resource))->toArray($request),
             [
                 'venue_listing' => $this->whenLoaded('venueListing', function () {
-                    if ($this->venueListing === null) {
-                        return null;
-                    }
-
                     return [
                         'uuid' => $this->venueListing->uuid,
                         'slug' => $this->venueListing->slug,

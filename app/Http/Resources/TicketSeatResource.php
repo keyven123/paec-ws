@@ -35,13 +35,13 @@ class TicketSeatResource extends JsonResource
                     'qr_code' => $this->ticket->qr_code,
                     'attendee_name' => $this->ticket->attendee_name,
                     'status' => $this->ticket->status,
-                    'user' => $this->whenLoaded('ticket.user', function () {
+                    'user' => $this->when($this->ticket->relationLoaded('user') && $this->ticket->user, function () {
                         return [
                             'uuid' => $this->ticket->user->uuid,
                             'name' => $this->ticket->user->first_name . ' ' . $this->ticket->user->last_name,
                         ];
                     }),
-                    'event' => $this->whenLoaded('ticket.event', function () {
+                    'event' => $this->when($this->ticket->relationLoaded('event') && $this->ticket->event, function () {
                         return [
                             'uuid' => $this->ticket->event->uuid,
                             'name' => $this->ticket->event->event_name,
@@ -55,7 +55,7 @@ class TicketSeatResource extends JsonResource
                     'col' => $this->venueSeat->col,
                     'row' => $this->venueSeat->row,
                     'seat_no' => $this->venueSeat->seat_no,
-                    'venue' => $this->whenLoaded('venueSeat.venue', function () {
+                    'venue' => $this->when($this->venueSeat->relationLoaded('venue') && $this->venueSeat->venue, function () {
                         return [
                             'uuid' => $this->venueSeat->venue->uuid,
                             'name' => $this->venueSeat->venue->name,

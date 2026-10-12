@@ -151,14 +151,6 @@ class VenueInquiryWorkflowService
             'proposal_upload_uuid' => $proposalData['proposal_upload_uuid'] ?? null,
         ];
 
-        if ($inquiry->status === VenueInquiry::STATUSES['PROPOSAL_SENT']) {
-            $inquiry->update(array_merge($extra, ['proposal_sent_at' => now()]));
-            $inquiry = $inquiry->fresh();
-            $this->afterProposalSent($inquiry, $proposalData);
-
-            return $inquiry;
-        }
-
         return $this->transition($inquiry, VenueInquiry::STATUSES['PROPOSAL_SENT'], [
             'extra_updates' => $extra,
             ...$proposalData,

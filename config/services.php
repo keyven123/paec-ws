@@ -48,6 +48,12 @@ return [
         'webhook_id' => env('PAYPAL_WEBHOOK_ID'),
     ],
 
+    // Paynamics issues the live PayGate URL per merchant; leave it unset until it has been provided.
+    'paynamics' => [
+        'testing_url' => env('PAYNAMICS_TESTING_URL', 'https://payin.payserv.net'),
+        'production_url' => env('PAYNAMICS_PRODUCTION_URL'),
+    ],
+
     'meta' => [
         'pixel_id' => env('META_PIXEL_ID'),
         'access_token' => env('META_PIXEL_ACCESS_TOKEN'),

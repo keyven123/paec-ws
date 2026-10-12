@@ -18,6 +18,7 @@
 /public/storage
 /public/index.html
 /public/assets
+/report
 /storage/*.key
 /storage/pail
 /vendor

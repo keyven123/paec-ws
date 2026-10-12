@@ -77,10 +77,6 @@ class AdminTransactionPnLService
                 continue;
             }
 
-            if (! isset($groups[$eventUuid])) {
-                continue;
-            }
-
             $gross = (float) $tx->total_amount;
             $groups[$eventUuid]['gmv'] += $gross;
 

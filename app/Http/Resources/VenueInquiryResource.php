@@ -107,8 +107,12 @@ class VenueInquiryResource extends JsonResource
 
     private function shouldRevealContactDetails(Request $request): bool
     {
-        if (auth('admin')->check()) {
-            return $this->resource->merchantCanViewContactDetails();
+        $adminUser = auth('admin')->user();
+
+        if ($adminUser !== null) {
+            // Platform admins always see customer contact; merchants only after the deposit.
+            return ($adminUser->role?->is_admin ?? false)
+                || $this->resource->merchantCanViewContactDetails();
         }
 
         return true;

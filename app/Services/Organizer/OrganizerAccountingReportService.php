@@ -334,9 +334,10 @@ class OrganizerAccountingReportService
             ->where('status', '!=', Transaction::STATUS['REFUNDED'])
             ->where('organization_uuid', $orgUuid)
             ->when($eventUuid !== null, fn ($q) => $q->where('event_uuid', $eventUuid))
-            ->orderByDesc(DB::raw('COALESCE(paid_at, created_at)'));
+            ->orderByDesc(DB::raw('COALESCE(paid_at, created_at)'))
+            ->orderBy('uuid');
 
-        foreach ($query->cursor() as $tx) {
+        foreach ($query->lazy(500) as $tx) {
             yield $tx;
         }
     }

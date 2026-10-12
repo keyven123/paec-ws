@@ -8,6 +8,7 @@ use App\Http\Repositories\TicketRepository;
 use App\Http\Requests\Ticket\TransferMyActiveTicketRequest;
 use App\Http\Requests\Ticket\UpdateMyTicketRequest;
 use App\Http\Resources\TicketResource;
+use App\Exceptions\NoTicketFoundException;
 use App\Exceptions\UnauthorizedException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -65,6 +66,8 @@ class TicketController extends Controller
                 'success' => true,
                 'message' => 'Ticket marked as downloaded successfully'
             ], 200);
+        } catch (NoTicketFoundException $e) {
+            return $this->ticketNotAccessibleResponse();
         } catch (\Exception $e) {
             Log::error('Ticket download failed: ' . $e->getMessage(), [
                 'trace' => $e->getTraceAsString(),
@@ -84,13 +87,6 @@ class TicketController extends Controller
         try {
             $ticket = $this->ticketRepository->fetchOrThrowByUser('uuid', $uuid, $request->user()->uuid);
 
-            if (!$ticket) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Ticket not found or not accessible'
-                ], 404);
-            }
-
             // Mark ticket as used
             $this->ticketRepository->markAsUsedForCustomer($ticket);
 
@@ -99,6 +95,8 @@ class TicketController extends Controller
                 'message' => 'Ticket marked as used successfully',
                 'ticket' => new TicketResource($ticket->fresh())
             ], 200);
+        } catch (NoTicketFoundException $e) {
+            return $this->ticketNotAccessibleResponse();
         } catch (UnauthorizedException $e) {
             return response()->json([
                 'success' => false,
@@ -116,5 +114,13 @@ class TicketController extends Controller
                 'error' => config('app.debug') ? $e->getMessage() : null
             ], 500);
         }
+    }
+
+    private function ticketNotAccessibleResponse(): JsonResponse
+    {
+        return response()->json([
+            'success' => false,
+            'message' => 'Ticket not found or not accessible'
+        ], 404);
     }
 }
