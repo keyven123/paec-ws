@@ -69,6 +69,11 @@ class SuccessPaymentProcess implements ShouldQueue
             ]);
         }
 
+        // The order (group) QR only admits several tickets at once; a single-ticket order uses its ticket QR.
+        if ($tickets->count() <= 1 && $transaction->qr_code !== null) {
+            $transaction->update(['qr_code' => null]);
+        }
+
         // Record affiliate conversion if applicable
         try {
             AffiliateAttributionService::recordConversionFromPaidTransaction($transaction);

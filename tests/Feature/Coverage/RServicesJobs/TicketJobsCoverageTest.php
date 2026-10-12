@@ -185,7 +185,25 @@ class TicketJobsCoverageTest extends TestCase
         $this->assertEquals(900, (float) $event->fresh()->total_revenue);
         $this->assertSame(1, (int) $event->fresh()->ticket_sold);
         $this->assertSame(1, (int) $eventTicket->fresh()->sold_ticket);
+        $this->assertNull($transaction->fresh()->qr_code);
         Notification::assertSentTo($customer, PaymentSuccessfulNotification::class);
+    }
+
+    #[Test]
+    public function successPaymentProcessKeepsTheGroupQrOnlyForMultiTicketOrders(): void
+    {
+        $customer = $this->createRsjUser();
+        $event = $this->createRsjEvent();
+        $eventTicket = $this->createRsjEventTicket($event);
+        $transaction = $this->createRsjTransaction($event, $customer);
+        $this->createRsjTicket($transaction, $eventTicket, ['status' => GeneralConstants::TICKET_STATUSES['PENDING']]);
+        $this->createRsjTicket($transaction, $eventTicket, ['status' => GeneralConstants::TICKET_STATUSES['PENDING']]);
+        $groupQr = $transaction->fresh()->qr_code;
+
+        (new SuccessPaymentProcess($transaction->uuid))->handle();
+
+        $this->assertStringStartsWith(Transaction::ORDER_QR_PREFIX, $groupQr);
+        $this->assertSame($groupQr, $transaction->fresh()->qr_code);
     }
 
     #[Test]
