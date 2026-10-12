@@ -118,7 +118,7 @@ class SuccessPaymentProcess implements ShouldQueue
             $transaction->user->notify(new PaymentSuccessfulNotification($transaction->uuid));
 
             // In-app notification so the customer sees the bell badge.
-            $eventName = $transaction->event?->name ?? 'your event';
+            $eventName = $transaction->event?->event_name ?? 'your event';
             app(NotificationService::class)->send(
                 $transaction->user,
                 'ticket_purchase',

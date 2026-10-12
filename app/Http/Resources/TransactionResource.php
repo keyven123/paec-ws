@@ -34,6 +34,7 @@ class TransactionResource extends JsonResource
             'payment_provider' => $this->payment_provider,
             'payment_id' => $this->payment_id,
             'order_number' => $this->order_number,
+            'order_qr_code' => $this->qr_code,
             'total_amount' => $this->total_amount,
             'sub_total' => $this->sub_total,
             'markup_amount' => $this->markup_amount ?? 0,
@@ -62,6 +63,7 @@ class TransactionResource extends JsonResource
                     'uuid' => $this->user->uuid,
                     'name' => trim($this->user->first_name . ' ' . $this->user->last_name),
                     'email' => $this->user->email,
+                    'phone_number' => $this->user->phone_number,
                 ];
             }),
             'event' => $this->whenLoaded('event', function () {
@@ -110,6 +112,27 @@ class TransactionResource extends JsonResource
                 ];
             }),
             'tickets_count' => $this->whenCounted('tickets'),
+            'tickets' => $this->whenLoaded('tickets', fn () => $this->tickets->map(fn ($ticket) => [
+                'uuid' => $ticket->uuid,
+                'ticket_number' => $ticket->ticket_number,
+                'status' => $ticket->status,
+                'ticket_type' => $ticket->eventTicket?->name,
+                'attendee_name' => $ticket->attendee_name,
+                'attendee_email' => $ticket->attendee_email,
+                'attendee_contact' => $ticket->attendee_contact,
+                'owner_email' => $ticket->relationLoaded('user') ? $ticket->user?->email : null,
+                // Used, transferred or expired tickets can no longer be scanned, so their QR is withheld.
+                'qr_code' => in_array($ticket->status, ['transferred', 'used', 'expired'], true)
+                    ? null
+                    : $ticket->qr_code,
+                'seat' => $ticket->col !== null && $ticket->row !== null ? "{$ticket->col}-{$ticket->row}" : null,
+                'location' => $ticket->eventLocation?->displayLabel(),
+                'price' => $ticket->price,
+                'valid_until' => $ticket->valid_until?->format('Y-m-d'),
+                'used_at' => $ticket->used_at?->format('Y-m-d H:i:s'),
+                'transferred_to' => $ticket->relationLoaded('transferredToUser') ? $ticket->transferredToUser?->email : null,
+                'transferred_at' => $ticket->transferred_at?->format('Y-m-d H:i:s'),
+            ])->values()),
             'transaction_orders' => $this->whenLoaded('transactionOrders', function () {
                 return TempTransactionOrderResource::collection($this->transactionOrders);
             }),

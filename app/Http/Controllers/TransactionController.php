@@ -6,11 +6,14 @@ use App\Http\Repositories\TransactionRepository;
 use App\Http\Requests\Transaction\CreateTransactionRequest;
 use App\Http\Requests\Transaction\UpdateTransactionRequest;
 use App\Http\Requests\Transaction\ListTransactionRequest;
+use App\Http\Requests\Transaction\SendTransactionTicketsRequest;
 use App\Http\Resources\TransactionResource;
 use App\Exceptions\NoTransactionFoundException;
 use App\Exceptions\UnauthorizedException;
+use App\Services\TransactionTicketDeliveryService;
 use Illuminate\Http\Response;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Str;
 
 class TransactionController extends Controller
 {
@@ -67,6 +70,49 @@ class TransactionController extends Controller
                 'message' => 'Transaction not found'
             ], 404);
         }
+    }
+
+    /**
+     * Send the transaction's active tickets to the account for an email, transferring them when it is another account.
+     */
+    public function sendTickets(
+        SendTransactionTicketsRequest $request,
+        string $uuid,
+        TransactionTicketDeliveryService $deliveryService,
+    ): JsonResponse {
+        try {
+            $transaction = $this->transactionRepository->fetchOrThrowForViewer($uuid);
+            $result = $deliveryService->send($transaction, $request->validated('email'));
+        } catch (NoTransactionFoundException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Transaction not found'
+            ], 404);
+        } catch (UnauthorizedException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage()
+            ], 422);
+        }
+
+        $recipient = $result['recipient'];
+        $message = $result['mode'] === TransactionTicketDeliveryService::MODE_RESENT
+            ? "Tickets sent to {$recipient->email}."
+            : "{$result['transferred_count']} " . Str::plural('ticket', $result['transferred_count'])
+                . " transferred to {$recipient->email}.";
+
+        return response()->json([
+            'success' => true,
+            'message' => $message,
+            'mode' => $result['mode'],
+            'ticket_count' => $result['ticket_count'],
+            'transferred_count' => $result['transferred_count'],
+            'recipient' => [
+                'name' => Str::squish($recipient->full_name),
+                'email' => $recipient->email,
+                'is_new_account' => $recipient->wasRecentlyCreated,
+            ],
+        ]);
     }
 
     /**

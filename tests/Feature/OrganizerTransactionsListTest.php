@@ -6,12 +6,15 @@ use App\Constants\GeneralConstants;
 use App\Models\AdminUser;
 use App\Models\AffiliateConversion;
 use App\Models\Event;
+use App\Models\EventLocation;
+use App\Models\EventTicket;
 use App\Models\Organization;
 use App\Models\Permission;
 use App\Models\Role;
 use App\Models\RolePermission;
 use App\Models\Schedule;
 use App\Models\ScheduleTime;
+use App\Models\Ticket;
 use App\Models\Transaction;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -256,6 +259,89 @@ class OrganizerTransactionsListTest extends TestCase
             ->assertJsonPath('data.order_number', 'ORD-DETAIL-001')
             ->assertJsonMissingPath('data.affiliate_commission_amount')
             ->assertJsonMissingPath('data.affiliate_commission_percent');
+    }
+
+    #[\PHPUnit\Framework\Attributes\Test]
+    public function transactionDetailListsBuyerAndEveryTicket(): void
+    {
+        $this->customer->update(['phone_number' => '+639171234567']);
+        $transaction = Transaction::create([
+            'user_uuid' => $this->customer->uuid,
+            'event_uuid' => $this->eventA->uuid,
+            'schedule_uuid' => $this->scheduleA->uuid,
+            'schedule_time_uuid' => $this->scheduleTimeA->uuid,
+            'organization_uuid' => $this->organizationA->uuid,
+            'transactionable_type' => 'event',
+            'transactionable_uuid' => $this->eventA->uuid,
+            'order_number' => 'ORD-DETAIL-TICKETS',
+            'total_amount' => 300.00,
+            'sub_total' => 300.00,
+            'tax_amount' => 0.00,
+            'discount' => 0.00,
+            'status' => 'completed',
+            'payment_status' => 'paid',
+            'order_status' => 'confirmed',
+        ]);
+        $eventTicket = EventTicket::create([
+            'event_uuid' => $this->eventA->uuid,
+            'code' => 'GA-DETAIL',
+            'name' => 'General Admission',
+            'price' => 150,
+            'max_ticket' => 10,
+            'is_unlimited' => true,
+            'status' => GeneralConstants::GENERAL_STATUSES['ACTIVE'],
+        ]);
+        $location = EventLocation::create([
+            'event_uuid' => $this->eventA->uuid,
+            'name' => 'Main Branch',
+            'city' => 'Manila',
+            'is_active' => true,
+            'sort_order' => 0,
+        ]);
+        $ticketDefaults = [
+            'user_uuid' => $this->customer->uuid,
+            'transaction_uuid' => $transaction->uuid,
+            'event_uuid' => $this->eventA->uuid,
+            'event_ticket_uuid' => $eventTicket->uuid,
+            'attendee_name' => 'Test Customer',
+            'attendee_email' => 'customer@test.com',
+            'price' => 150,
+            'discount' => 0,
+        ];
+        Ticket::create($ticketDefaults + [
+            'ticket_number' => 'TKT-A',
+            'status' => GeneralConstants::TICKET_STATUSES['ACTIVE'],
+            'qr_code' => 'QR_ACTIVE',
+            'event_location_uuid' => $location->uuid,
+            'col' => 3,
+            'row' => 7,
+            'valid_until' => '2026-06-01 23:59:59',
+        ]);
+        Ticket::create($ticketDefaults + [
+            'ticket_number' => 'TKT-B',
+            'status' => GeneralConstants::TICKET_STATUSES['USED'],
+            'qr_code' => 'QR_USED',
+            'used_at' => '2026-06-01 10:15:00',
+        ]);
+
+        $this->withHeaders([
+            'Authorization' => 'Bearer ' . $this->organizerToken,
+        ])->getJson('/api/v1/transactions/' . $transaction->uuid)
+            ->assertStatus(200)
+            ->assertJsonPath('data.user.phone_number', '+639171234567')
+            ->assertJsonPath('data.order_qr_code', $transaction->qr_code)
+            ->assertJsonCount(2, 'data.tickets')
+            ->assertJsonPath('data.tickets.0.ticket_number', 'TKT-A')
+            ->assertJsonPath('data.tickets.0.ticket_type', 'General Admission')
+            ->assertJsonPath('data.tickets.0.qr_code', 'QR_ACTIVE')
+            ->assertJsonPath('data.tickets.0.seat', '3-7')
+            ->assertJsonPath('data.tickets.0.location', 'Main Branch')
+            ->assertJsonPath('data.tickets.0.valid_until', '2026-06-01')
+            ->assertJsonPath('data.tickets.1.ticket_number', 'TKT-B')
+            ->assertJsonPath('data.tickets.1.qr_code', null)
+            ->assertJsonPath('data.tickets.1.seat', null)
+            ->assertJsonPath('data.tickets.1.location', null)
+            ->assertJsonPath('data.tickets.1.used_at', '2026-06-01 10:15:00');
     }
 
     #[\PHPUnit\Framework\Attributes\Test]

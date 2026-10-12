@@ -25,17 +25,47 @@ class GuestCustomerService
         }
 
         $phoneTaken = User::query()->where('phone_number', $details['phone_number'])->exists();
-        $role = Role::whereCode(GeneralConstants::ROLES['CUSTOMER']['name'])->first();
 
-        return User::create([
-            'role_uuid' => $role?->uuid,
+        return self::createGuest([
             'first_name' => trim($details['first_name']),
             'last_name' => trim($details['last_name']),
             'address_line_1' => trim($details['address']),
             'email' => $email,
             'phone_number' => $phoneTaken ? null : $details['phone_number'],
+        ]);
+    }
+
+    /**
+     * Find the customer for an email, creating a guest customer named after the email's local part when none exists.
+     */
+    public static function resolveByEmail(string $email): User
+    {
+        $email = Str::lower(trim($email));
+
+        $existing = User::query()->where('email', $email)->first();
+        if ($existing) {
+            return $existing;
+        }
+
+        $name = Str::of(Str::before($email, '@'))->replaceMatches('/[._\-+]+/', ' ')->trim()->title()->value();
+
+        return self::createGuest([
+            'first_name' => $name !== '' ? $name : 'Guest',
+            'last_name' => '',
+            'email' => $email,
+        ]);
+    }
+
+    private static function createGuest(array $attributes): User
+    {
+        $role = Role::whereCode(GeneralConstants::ROLES['CUSTOMER']['name'])->first();
+
+        return User::create([
+            'role_uuid' => $role?->uuid,
+            ...$attributes,
             'password' => Str::random(40),
             'provider' => User::GUEST_PROVIDER,
+            'status' => GeneralConstants::GENERAL_STATUSES['ACTIVE'],
             'marketing_consent' => false,
             'is_first_time_login' => false,
         ]);

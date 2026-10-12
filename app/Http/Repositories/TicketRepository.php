@@ -20,6 +20,7 @@ use App\Services\Platform\TransactionCommissionService;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 
 class TicketRepository
 {
@@ -269,11 +270,18 @@ class TicketRepository
             'transaction_uuid' => $ticket->transaction_uuid,
             'organization_uuid' => $ticket->organization_uuid,
             'event_uuid' => $ticket->event_uuid,
+            'event_location_uuid' => $ticket->event_location_uuid,
             'event_ticket_uuid' => $ticket->event_ticket_uuid,
             'venue_seat_uuid' => $ticket->venue_seat_uuid,
             'col' => $ticket->col,
             'row' => $ticket->row,
-            'attendee_name' => $user->full_name,
+            'visit_policy' => $ticket->visit_policy,
+            'valid_until' => $ticket->valid_until,
+            'price' => $ticket->price,
+            'discount' => $ticket->discount,
+            'type' => $ticket->type,
+            'other_info' => $ticket->other_info,
+            'attendee_name' => Str::squish($user->full_name),
             'attendee_email' => $user->email,
             'attendee_contact' => $user->phone_number ?? null,
             'transfer_count' => $ticket->transfer_count + 1,

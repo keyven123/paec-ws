@@ -5,8 +5,10 @@ namespace App\Http\Repositories;
 use App\Exceptions\NoTransactionFoundException;
 use App\Exceptions\UnauthorizedException;
 use App\Models\Transaction;
+use App\Models\VenueInquiry;
 use App\Helpers\GeneralHelper;
 use Illuminate\Contracts\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Relations\MorphTo;
 
 class TransactionRepository
 {
@@ -62,11 +64,18 @@ class TransactionRepository
                 'schedule',
                 'scheduleTime',
                 'transactionOrders.eventTicket',
+                'tickets' => fn ($query) => $query->orderBy('created_at')->orderBy('ticket_number'),
+                'tickets.eventTicket',
+                'tickets.eventLocation',
+                'tickets.user',
+                'tickets.transferredToUser',
                 'promoCode',
                 'affiliatePartner',
                 'affiliateConversion',
                 'commissionLedger',
-                'transactionable.venueListing',
+                'transactionable' => fn (MorphTo $morphTo) => $morphTo->morphWith([
+                    VenueInquiry::class => ['venueListing'],
+                ]),
             ])
             ->where('uuid', $uuid)
             ->first();

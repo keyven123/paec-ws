@@ -23,5 +23,8 @@ Route::group(['prefix' => 'transactions', 'middleware' => 'auth:admin'], functio
 
         Route::post('/verify-payment', [TempTransactionController::class, 'completePayment'])
             ->middleware('can:transactions-execute');
+
+        Route::post('/send-tickets', [TransactionController::class, 'sendTickets'])
+            ->middleware('can:transactions-execute');
     });
 });
