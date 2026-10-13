@@ -170,6 +170,46 @@ class PaynamicsGatewayTest extends TestCase
     }
 
     #[Test]
+    public function an_invalid_authentication_code_is_reported_as_rejected_credentials(): void
+    {
+        config(['services.paynamics.production_url' => self::LIVE_HOST]);
+        Http::fake([
+            self::TEST_QUERY_URL => Http::response(['response_code' => 'GR153', 'response_message' => 'Invalid Authentication'], 400),
+            self::LIVE_QUERY_URL => Http::response(['response_code' => 'GR153', 'response_message' => 'Invalid Authentication'], 400),
+        ]);
+
+        $this->postPaynamics()
+            ->assertStatus(422)
+            ->assertJsonValidationErrors(['api_password' => 'Paynamics did not accept this API username and password.']);
+    }
+
+    #[Test]
+    public function a_firewall_block_asks_for_the_server_ip_to_be_whitelisted(): void
+    {
+        config(['services.paynamics.production_url' => self::LIVE_HOST]);
+        Http::fake([
+            self::TEST_QUERY_URL => Http::response('<html>Access denied</html>', 403),
+            self::LIVE_QUERY_URL => Http::response('<html>Access denied</html>', 403),
+        ]);
+
+        $this->postPaynamics()
+            ->assertStatus(422)
+            ->assertJsonValidationErrors(['api_password' => 'whitelist this server\'s public IP address']);
+
+        $this->assertDatabaseCount('payment_gateways', 0);
+    }
+
+    #[Test]
+    public function a_non_paygate_page_is_not_mistaken_for_accepted_credentials(): void
+    {
+        Http::fake([self::TEST_QUERY_URL => Http::response('<html>Please verify you are a human</html>', 200)]);
+
+        $this->postPaynamics()
+            ->assertStatus(422)
+            ->assertJsonValidationErrors(['api_password' => 'whitelist this server\'s public IP address']);
+    }
+
+    #[Test]
     public function a_signature_failure_points_at_the_merchant_key(): void
     {
         Http::fake([self::TEST_QUERY_URL => Http::response(['response_code' => 'GR036', 'response_message' => 'Signature Verification failed'])]);

@@ -40,12 +40,14 @@ class PaynamicsService implements PaymentServiceInterface
     public const CREDENTIALS_REJECTED = 'rejected';
     public const CREDENTIALS_BAD_SIGNATURE = 'bad_signature';
     public const CREDENTIALS_UNREACHABLE = 'unreachable';
+    public const CREDENTIALS_BLOCKED = 'blocked';
 
     private const SUCCESS_CODES = ['GR001', 'GR002'];
     private const PENDING_CODE = 'GR033';
     private const FAILED_CODE = 'GR003';
     private const CANCELLED_CODE = 'GR053';
     private const SIGNATURE_FAILED_CODE = 'GR036';
+    private const INVALID_AUTHENTICATION_CODE = 'GR153';
 
     public function __construct(
         private readonly string $merchantId,
@@ -338,12 +340,30 @@ class PaynamicsService implements PaymentServiceInterface
             return self::CREDENTIALS_UNREACHABLE;
         }
 
-        return match (true) {
-            in_array($response->status(), [401, 403], true) => self::CREDENTIALS_REJECTED,
+        $code = $response->json('response_code');
+
+        // PayGate always answers with a JSON response_code; anything else (403, HTML challenge page)
+        // comes from a firewall in front of it, usually because this server's IP is not whitelisted.
+        $result = match (true) {
             $response->serverError() => self::CREDENTIALS_UNREACHABLE,
-            ($response->json('response_code')) === self::SIGNATURE_FAILED_CODE => self::CREDENTIALS_BAD_SIGNATURE,
+            $code === self::SIGNATURE_FAILED_CODE => self::CREDENTIALS_BAD_SIGNATURE,
+            $code === self::INVALID_AUTHENTICATION_CODE, $response->status() === 401 => self::CREDENTIALS_REJECTED,
+            $response->status() === 403, ! is_string($code) || $code === '' => self::CREDENTIALS_BLOCKED,
             default => self::CREDENTIALS_ACCEPTED,
         };
+
+        if ($result !== self::CREDENTIALS_ACCEPTED) {
+            Log::warning('Paynamics credential check failed', [
+                'host' => $this->baseUrl,
+                'result' => $result,
+                'status' => $response->status(),
+                'response_code' => $code,
+                'response_message' => $response->json('response_message'),
+                'body' => Str::limit($response->body(), 500),
+            ]);
+        }
+
+        return $result;
     }
 
     private function client(): PendingRequest

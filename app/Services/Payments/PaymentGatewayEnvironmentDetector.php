@@ -53,6 +53,8 @@ class PaymentGatewayEnvironmentDetector
 
         $unreachable = false;
         $badSignature = false;
+        $rejected = false;
+        $blocked = false;
 
         foreach ($hosts as $environment => $host) {
             $service = new PaynamicsService($merchantId, $merchantKey, $apiUsername, $apiPassword, rtrim($host, '/'));
@@ -64,6 +66,8 @@ class PaymentGatewayEnvironmentDetector
 
             $unreachable = $unreachable || $result === PaynamicsService::CREDENTIALS_UNREACHABLE;
             $badSignature = $badSignature || $result === PaynamicsService::CREDENTIALS_BAD_SIGNATURE;
+            $rejected = $rejected || $result === PaynamicsService::CREDENTIALS_REJECTED;
+            $blocked = $blocked || $result === PaynamicsService::CREDENTIALS_BLOCKED;
         }
 
         if ($badSignature) {
@@ -76,9 +80,16 @@ class PaymentGatewayEnvironmentDetector
             return null;
         }
 
+        if ($blocked && ! $rejected) {
+            throw ValidationException::withMessages([
+                'api_password' => 'Paynamics blocked the request from this server before checking the credentials. Ask Paynamics to whitelist this server\'s public IP address.',
+            ]);
+        }
+
         $message = 'Paynamics did not accept this API username and password.';
         if (! isset($hosts[GeneralConstants::PAYMENT_GATEWAY_ENVIRONMENTS['PRODUCTION']])) {
-            $message .= ' Only the test environment was checked; live credentials need PAYNAMICS_PRODUCTION_URL set on the server.';
+            $message .= ' Only the test environment was checked; live credentials need PAYNAMICS_PRODUCTION_URL set on the server'
+                . ' (if it is already in .env, run php artisan config:clear).';
         }
 
         throw ValidationException::withMessages(['api_password' => $message]);
