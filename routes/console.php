@@ -9,3 +9,4 @@ Artisan::command('inspire', function () {
 })->purpose('Display an inspiring quote');
 
 Schedule::command('app:expire-tickets')->dailyAt('00:10');
+Schedule::command('app:auto-verify-pending-transaction')->everyFiveMinutes()->withoutOverlapping();

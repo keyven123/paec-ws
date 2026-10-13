@@ -55,7 +55,7 @@ class AutoVerifyPendingTransaction extends Command
             $this->info("Starting to verify transaction #{$transaction->uuid}.");
 
             try {
-                $response = $tempTransactionController->completePayment($transaction->uuid);
+                $response = $tempTransactionController->verifyPendingPayment($transaction->uuid);
                 $payload = (array) $response->getData(true);
                 $isSuccessful = (bool) ($payload['success'] ?? false);
                 $statusCode = $response->getStatusCode();

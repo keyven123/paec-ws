@@ -458,6 +458,59 @@ class PaynamicsCheckoutTest extends TestCase
     }
 
     #[Test]
+    public function a_notification_posted_as_plain_text_json_is_still_read(): void
+    {
+        $transaction = $this->checkedOutTransaction('GR001');
+
+        $this->call(
+            'POST',
+            '/api/v1/payments/paynamics/notification',
+            server: ['CONTENT_TYPE' => 'text/plain', 'HTTP_ACCEPT' => 'application/json'],
+            content: json_encode(['request_id' => $transaction->payment_order_id, 'response_code' => 'GR001']),
+        )
+            ->assertOk()
+            ->assertJsonPath('payment_status', Transaction::PAYMENT_STATUS['PAID']);
+    }
+
+    #[Test]
+    public function a_notification_with_the_request_id_inside_the_transaction_is_read(): void
+    {
+        $transaction = $this->checkedOutTransaction('GR001');
+
+        $this->postJson('/api/v1/payments/paynamics/notification', [
+            'transaction' => ['request_id' => $transaction->payment_order_id],
+        ])
+            ->assertOk()
+            ->assertJsonPath('payment_status', Transaction::PAYMENT_STATUS['PAID']);
+    }
+
+    #[Test]
+    public function the_scheduled_check_confirms_paid_orders_without_a_signed_in_customer(): void
+    {
+        $transaction = $this->checkedOutTransaction('GR001');
+
+        $this->artisan('app:auto-verify-pending-transaction')
+            ->expectsOutputToContain("Verified transaction #{$transaction->uuid}.")
+            ->assertSuccessful();
+
+        $transaction->refresh();
+        $this->assertSame(Transaction::PAYMENT_STATUS['PAID'], $transaction->payment_status);
+        $this->assertSame(Transaction::ORDER_STATUS['CONFIRMED'], $transaction->order_status);
+    }
+
+    #[Test]
+    public function the_scheduled_check_cancels_orders_paynamics_reports_as_cancelled(): void
+    {
+        $transaction = $this->checkedOutTransaction('GR053', 'Transaction cancelled');
+
+        $this->artisan('app:auto-verify-pending-transaction')
+            ->expectsOutputToContain("Transaction #{$transaction->uuid} was cancelled after gateway reported failure.")
+            ->assertSuccessful();
+
+        $this->assertSame(Transaction::ORDER_STATUS['CANCELLED'], $transaction->fresh()->order_status);
+    }
+
+    #[Test]
     public function a_notification_for_an_unknown_order_is_rejected(): void
     {
         $this->postJson('/api/v1/payments/paynamics/notification', ['request_id' => 'PAY-UNKNOWN'])

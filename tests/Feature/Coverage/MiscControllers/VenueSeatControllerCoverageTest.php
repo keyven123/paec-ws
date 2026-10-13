@@ -173,4 +173,23 @@ class VenueSeatControllerCoverageTest extends TestCase
             $this->assertArrayHasKey($key, $response->json('0'));
         }
     }
+
+    #[Test]
+    #[DataProvider('publicSeatEndpoints')]
+    public function publicSeatMapWithoutAScheduleCountsSeatsTakenOnAnyDate(string $endpoint): void
+    {
+        $free = $this->createVenueSeat($this->venue, ['seat_no' => 2]);
+        $event = $this->createEvent(['venue_uuid' => $this->venue->uuid]);
+        $paid = $this->createTransaction($this->createCustomer(), $event, [
+            'schedule_uuid' => $this->createSchedule($event)->uuid,
+        ]);
+        $this->createTicket($paid, ['venue_seat_uuid' => $this->seat->uuid]);
+
+        $availability = collect($this->getJson("/api/v1/public/events/{$event->uuid}/{$endpoint}")->assertOk()->json())
+            ->pluck('is_available', 'uuid')
+            ->all();
+
+        $this->assertFalse($availability[$this->seat->uuid]);
+        $this->assertTrue($availability[$free->uuid]);
+    }
 }

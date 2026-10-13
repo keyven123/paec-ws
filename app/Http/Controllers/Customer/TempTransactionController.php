@@ -870,14 +870,32 @@ class TempTransactionController extends Controller
     }
 
     /**
+     * Re-checks a pending payment with its gateway for scheduled jobs, which have no signed-in viewer.
+     */
+    public function verifyPendingPayment(string $transactionUuid): JsonResponse
+    {
+        return $this->reconcileGatewayPayment(Transaction::where('uuid', $transactionUuid)->firstOrFail());
+    }
+
+    /**
      * Paynamics server-to-server notification. The posted body is only used to find the order;
      * its status always comes from the signed query API.
      */
     public function paynamicsNotification(Request $request): JsonResponse
     {
+        // Paynamics may post JSON without a JSON content type, so fall back to decoding the raw body.
+        $payload = $request->all() ?: (array) json_decode($request->getContent(), true);
+        $requestId = (string) (data_get($payload, 'request_id') ?? data_get($payload, 'transaction.request_id') ?? '');
+
+        Log::info('Paynamics notification received', [
+            'request_id' => $requestId,
+            'response_code' => data_get($payload, 'response_code'),
+            'fields' => array_keys($payload),
+        ]);
+
         $transaction = Transaction::query()
             ->where('payment_provider', GeneralConstants::PAYMENT_GATEWAY_PROVIDERS['PAYNAMICS'])
-            ->where('payment_id', (string) $request->input('request_id'))
+            ->where('payment_id', $requestId)
             ->first();
 
         if (! $transaction) {

@@ -41,15 +41,15 @@ class AutoVerifyPendingTransactionCommandCoverageTest extends TestCase
         $pending('cs_confirmed', ['order_status' => Transaction::ORDER_STATUS['CONFIRMED']]);
 
         $this->mock(TempTransactionController::class, function (MockInterface $mock) use ($verified, $stillPending, $failed, $unexpected, $throws): void {
-            $mock->shouldReceive('completePayment')->once()->with($verified->uuid)
+            $mock->shouldReceive('verifyPendingPayment')->once()->with($verified->uuid)
                 ->andReturn(response()->json(['success' => true, 'message' => 'Payment completed']));
-            $mock->shouldReceive('completePayment')->once()->with($stillPending->uuid)
+            $mock->shouldReceive('verifyPendingPayment')->once()->with($stillPending->uuid)
                 ->andReturn(response()->json(['success' => false, 'message' => 'Payment is still pending'], 202));
-            $mock->shouldReceive('completePayment')->once()->with($failed->uuid)
+            $mock->shouldReceive('verifyPendingPayment')->once()->with($failed->uuid)
                 ->andReturn(response()->json(['success' => false, 'message' => 'Payment failed'], 400));
-            $mock->shouldReceive('completePayment')->once()->with($unexpected->uuid)
+            $mock->shouldReceive('verifyPendingPayment')->once()->with($unexpected->uuid)
                 ->andReturn(response()->json(['success' => false], 422));
-            $mock->shouldReceive('completePayment')->once()->with($throws->uuid)
+            $mock->shouldReceive('verifyPendingPayment')->once()->with($throws->uuid)
                 ->andThrow(new RuntimeException('Gateway timeout'));
         });
         Log::spy();
@@ -75,7 +75,7 @@ class AutoVerifyPendingTransactionCommandCoverageTest extends TestCase
     public function itFinishesCleanlyWhenNothingIsPending(): void
     {
         $this->mock(TempTransactionController::class, function (MockInterface $mock): void {
-            $mock->shouldNotReceive('completePayment');
+            $mock->shouldNotReceive('verifyPendingPayment');
         });
 
         $this->artisan('app:auto-verify-pending-transaction')
