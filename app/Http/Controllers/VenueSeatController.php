@@ -118,13 +118,15 @@ class VenueSeatController extends Controller
     public function getVenueSeatsPublic(ShowVenueSeatRequest $request)
     {
         $payload = $request->validated();
-        $schedule = Schedule::where('uuid', $payload['schedule_uuid'])->first();
+        $schedule = ! empty($payload['schedule_uuid'])
+            ? Schedule::where('uuid', $payload['schedule_uuid'])->first()
+            : null;
         $occupiedSeats = Ticket::whereHas('transaction', function ($query) use ($payload) {
             $query->whereNotIn('status', [Transaction::PAYMENT_STATUS['FAILED'], Transaction::PAYMENT_STATUS['CANCELLED']]);
-            if ($payload['schedule_uuid']) {
+            if (! empty($payload['schedule_uuid'])) {
                 $query->where('schedule_uuid', $payload['schedule_uuid']);
             }
-            if ($payload['schedule_time_uuid']) {
+            if (! empty($payload['schedule_time_uuid'])) {
                 $query->where('schedule_time_uuid', $payload['schedule_time_uuid']);
             }
         })
@@ -158,13 +160,15 @@ class VenueSeatController extends Controller
     public function getVenueSeatsPublicV2(ShowVenueSeatRequest $request)
     {
         $payload = $request->validated();
-        $schedule = Schedule::where('uuid', $payload['schedule_uuid'])->first();
+        $schedule = ! empty($payload['schedule_uuid'])
+            ? Schedule::where('uuid', $payload['schedule_uuid'])->first()
+            : null;
         $occupiedSeats = Ticket::whereHas('transaction', function ($query) use ($payload) {
             $query->whereNotIn('status', [Transaction::PAYMENT_STATUS['FAILED'], Transaction::PAYMENT_STATUS['CANCELLED']]);
-            if ($payload['schedule_uuid']) {
+            if (! empty($payload['schedule_uuid'])) {
                 $query->where('schedule_uuid', $payload['schedule_uuid']);
             }
-            if ($payload['schedule_time_uuid']) {
+            if (! empty($payload['schedule_time_uuid'])) {
                 $query->where('schedule_time_uuid', $payload['schedule_time_uuid']);
             }
         })
