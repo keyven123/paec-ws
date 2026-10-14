@@ -44,6 +44,7 @@ class VenueListingResource extends JsonResource
             'rating' => (float) $this->rating,
             'review_count' => $this->review_count,
             'inquiries_count' => $this->inquiries_count,
+            'new_inquiries_count' => $this->when(isset($this->new_inquiries_count), fn () => (int) $this->new_inquiries_count),
             'bookings_count' => $this->bookings_count,
             'image_color' => $this->image_color,
             'featured_image_url' => $images['featured_image_url'],

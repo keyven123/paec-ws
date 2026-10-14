@@ -2,7 +2,9 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Requests\Dashboard\DashboardOverviewRequest;
 use App\Models\Event;
+use App\Services\AdminDashboardOverviewService;
 use App\Models\Ticket;
 use App\Models\Transaction;
 use App\Models\User;
@@ -90,6 +92,18 @@ class AdminDashboardController extends Controller
             'success' => true,
             'message' => 'Recent activity feed',
             'activities' => $activities,
+        ]);
+    }
+
+    /**
+     * Dashboard overview for a period: KPIs, revenue series, ticket statuses, top attractions,
+     * upcoming visits and recent bookings.
+     */
+    public function overview(DashboardOverviewRequest $request, AdminDashboardOverviewService $overview): JsonResponse
+    {
+        return response()->json([
+            'success' => true,
+            'data' => $overview->build($request->validated('period', 'year')),
         ]);
     }
 

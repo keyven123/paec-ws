@@ -4,6 +4,7 @@ namespace App\Http\Repositories;
 
 use App\Exceptions\NoVenueListingFoundException;
 use App\Helpers\GeneralHelper;
+use App\Models\VenueInquiry;
 use App\Models\VenueListing;
 use Illuminate\Contracts\Database\Eloquent\Builder;
 use Illuminate\Support\Str;
@@ -22,6 +23,9 @@ class VenueListingRepository
     {
         return $this->venueListing
             ->with(['organization', 'featuredImage', 'gallery'])
+            ->withCount([
+                'inquiries as new_inquiries_count' => fn ($query) => $query->whereNull('viewed_at'),
+            ])
             ->filters($filters)
             ->orderByDesc('updated_at');
     }
@@ -148,6 +152,10 @@ class VenueListingRepository
             'published' => (clone $base)->where('status', VenueListing::STATUSES['PUBLISHED'])->count(),
             'pending' => (clone $base)->where('status', VenueListing::STATUSES['PENDING'])->count(),
             'total_inquiries' => (int) (clone $base)->sum('inquiries_count'),
+            'new_inquiries' => VenueInquiry::query()
+                ->whereNull('viewed_at')
+                ->whereIn('venue_listing_uuid', (clone $base)->select('uuid'))
+                ->count(),
         ];
     }
 }

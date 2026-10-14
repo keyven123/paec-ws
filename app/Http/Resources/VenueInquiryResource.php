@@ -36,6 +36,7 @@ class VenueInquiryResource extends JsonResource
             'message' => $this->message,
             'status' => $this->status,
             'status_label' => VenueInquiry::statusLabel($this->status),
+            'viewed_at' => $this->viewed_at?->toISOString(),
             'approved_amount' => $this->approved_amount !== null ? (float) $this->approved_amount : null,
             'approved_due_date' => $this->approved_due_date?->format('Y-m-d'),
             'proposal_amount' => $this->proposal_amount !== null ? (float) $this->proposal_amount : null,

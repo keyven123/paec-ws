@@ -354,6 +354,28 @@ class VenueListingController extends Controller
     }
 
     /**
+     * Marks an inquiry as opened by the venue team so it no longer counts as new.
+     *
+     * @param string $inquiryUuid
+     * @return JsonResponse
+     */
+    public function markInquiryViewed(string $inquiryUuid): JsonResponse
+    {
+        try {
+            $inquiry = $this->venueInquiryRepository->markViewed(
+                $this->venueInquiryRepository->fetchOrThrow($inquiryUuid),
+            );
+
+            return (new VenueInquiryResource($inquiry))->response();
+        } catch (NoVenueInquiryFoundException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Venue inquiry not found',
+            ], 404);
+        }
+    }
+
+    /**
      * @param UpdateVenueInquiryRequest $request
      * @param string $inquiryUuid
      * @return JsonResponse

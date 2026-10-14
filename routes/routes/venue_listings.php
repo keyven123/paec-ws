@@ -17,6 +17,7 @@ Route::prefix('venue-listings')->group(function () {
         // Realtime chat thread for a given inquiry (merchant side).
         Route::get('/chat/unread-summary', [ChatController::class, 'unreadSummary']);
         Route::get('/inquiries/{inquiryUuid}', [VenueListingController::class, 'showInquiry']);
+        Route::post('/inquiries/{inquiryUuid}/viewed', [VenueListingController::class, 'markInquiryViewed']);
         Route::get('/inquiries/{inquiryUuid}/chat', [ChatController::class, 'show']);
     });
 

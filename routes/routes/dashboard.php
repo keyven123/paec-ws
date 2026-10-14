@@ -6,4 +6,5 @@ use Illuminate\Support\Facades\Route;
 Route::prefix('admin/dashboard')->group(function () {
     Route::get('/recent-activities', [AdminDashboardController::class, 'recentActivities'])->middleware('can:dashboard-view,organizer-dashboard-view');
     Route::get('/stats', [AdminDashboardController::class, 'dashboardStats'])->middleware('can:dashboard-view,organizer-dashboard-view');
+    Route::get('/overview', [AdminDashboardController::class, 'overview'])->middleware('can:dashboard-view,organizer-dashboard-view');
 });

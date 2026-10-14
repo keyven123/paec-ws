@@ -44,6 +44,7 @@ class VenueInquiryRepository
 
         return [
             'all' => (clone $base)->count(),
+            'unviewed' => (clone $base)->whereNull('viewed_at')->count(),
             'new' => (clone $base)->where('status', VenueInquiry::STATUSES['NEW'])->count(),
             'in_discussion' => (clone $base)->where('status', VenueInquiry::STATUSES['IN_DISCUSSION'])->count(),
             'site_visit_scheduled' => (clone $base)->where('status', VenueInquiry::STATUSES['SITE_VISIT_SCHEDULED'])->count(),
@@ -65,6 +66,16 @@ class VenueInquiryRepository
 
         if (is_null($inquiry)) {
             throw new NoVenueInquiryFoundException();
+        }
+
+        return $inquiry;
+    }
+
+    public function markViewed(VenueInquiry $inquiry): VenueInquiry
+    {
+        if ($inquiry->viewed_at === null) {
+            $inquiry->viewed_at = now();
+            $inquiry->save();
         }
 
         return $inquiry;

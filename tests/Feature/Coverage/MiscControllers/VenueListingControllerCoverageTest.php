@@ -46,32 +46,96 @@ class VenueListingControllerCoverageTest extends TestCase
         [$headers, $organization] = $this->createVenueListingMerchantAuth();
         $own = $this->createVenueListing(['organization_uuid' => $organization->uuid]);
         $this->createVenueListing();
+        $this->inquiry(['venue_listing_uuid' => $own->uuid]);
+        $this->inquiry(['venue_listing_uuid' => $own->uuid]);
+        $this->inquiry(['venue_listing_uuid' => $own->uuid, 'viewed_at' => now()]);
 
         $this->withHeaders($headers)
             ->getJson('/api/v1/venue-listings')
             ->assertOk()
             ->assertJsonCount(1, 'data')
-            ->assertJsonPath('data.0.uuid', $own->uuid);
+            ->assertJsonPath('data.0.uuid', $own->uuid)
+            ->assertJsonPath('data.0.new_inquiries_count', 2);
+
+        $this->withHeaders($headers)
+            ->getJson("/api/v1/venue-listings/{$own->uuid}")
+            ->assertOk()
+            ->assertJsonMissingPath('data.new_inquiries_count');
     }
 
     #[Test]
     public function merchantStatsAreScopedToTheirOrganization(): void
     {
         [$headers, $organization] = $this->createVenueListingMerchantAuth();
-        $this->createVenueListing([
+        $own = $this->createVenueListing([
             'organization_uuid' => $organization->uuid,
             'status' => VenueListing::STATUSES['PUBLISHED'],
             'inquiries_count' => 4,
         ]);
-        $this->createVenueListing(['inquiries_count' => 9]);
+        $other = $this->createVenueListing(['inquiries_count' => 9]);
         $this->createVenueListing(['inquiries_count' => 1]);
+        $this->inquiry(['venue_listing_uuid' => $own->uuid]);
+        $this->inquiry(['venue_listing_uuid' => $own->uuid, 'viewed_at' => now()]);
+        $this->inquiry(['venue_listing_uuid' => $other->uuid]);
 
         $this->withHeaders($headers)
             ->getJson('/api/v1/venue-listings/stats')
             ->assertOk()
             ->assertJsonPath('data.total', 1)
             ->assertJsonPath('data.published', 1)
-            ->assertJsonPath('data.total_inquiries', 4);
+            ->assertJsonPath('data.total_inquiries', 4)
+            ->assertJsonPath('data.new_inquiries', 1);
+
+        $this->withHeaders($this->adminHeaders())
+            ->getJson('/api/v1/venue-listings/stats')
+            ->assertOk()
+            ->assertJsonPath('data.new_inquiries', 2);
+    }
+
+    #[Test]
+    public function openingAnInquiryMarksItViewedOnceAndDropsItFromTheNewCounts(): void
+    {
+        $inquiry = $this->inquiry();
+        $this->inquiry(['venue_listing_uuid' => $inquiry->venue_listing_uuid]);
+        $headers = $this->adminHeaders();
+
+        $this->withHeaders($headers)
+            ->getJson("/api/v1/venue-listings/{$inquiry->venue_listing_uuid}/inquiries")
+            ->assertOk()
+            ->assertJsonPath('status_counts.unviewed', 2)
+            ->assertJsonPath('data.0.viewed_at', null);
+
+        $this->travelTo('2026-10-14 09:00:00');
+        $this->withHeaders($headers)
+            ->postJson("/api/v1/venue-listings/inquiries/{$inquiry->uuid}/viewed")
+            ->assertOk()
+            ->assertJsonPath('data.uuid', $inquiry->uuid)
+            ->assertJsonPath('data.viewed_at', '2026-10-14T01:00:00.000000Z');
+
+        $this->travelTo('2026-10-14 09:20:00');
+        $this->withHeaders($headers)
+            ->postJson("/api/v1/venue-listings/inquiries/{$inquiry->uuid}/viewed")
+            ->assertOk()
+            ->assertJsonPath('data.viewed_at', '2026-10-14T01:00:00.000000Z');
+
+        $this->withHeaders($headers)
+            ->getJson('/api/v1/venue-listings/stats')
+            ->assertJsonPath('data.new_inquiries', 1);
+        $this->withHeaders($headers)
+            ->getJson('/api/v1/venue-listings')
+            ->assertJsonPath('data.0.new_inquiries_count', 1);
+        $this->withHeaders($headers)
+            ->getJson("/api/v1/venue-listings/{$inquiry->venue_listing_uuid}/inquiries")
+            ->assertJsonPath('status_counts.unviewed', 1);
+    }
+
+    #[Test]
+    public function markingAnUnknownInquiryViewedReturns404(): void
+    {
+        $this->withHeaders($this->adminHeaders())
+            ->postJson('/api/v1/venue-listings/inquiries/' . self::MISSING_UUID . '/viewed')
+            ->assertNotFound()
+            ->assertExactJson(['success' => false, 'message' => 'Venue inquiry not found']);
     }
 
     #[Test]
