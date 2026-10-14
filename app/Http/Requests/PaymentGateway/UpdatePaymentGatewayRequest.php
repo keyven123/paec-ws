@@ -45,6 +45,7 @@ class UpdatePaymentGatewayRequest extends FormRequest
             'secret_key' => ['sometimes', 'string', 'max:2000'],
             'api_username' => ['sometimes', 'string', 'max:255'],
             'api_password' => ['sometimes', 'string', 'max:255'],
+            'paybiz_wallet_id' => ['sometimes', 'nullable', 'string', 'max:64', 'regex:' . PaynamicsService::PAYBIZ_WALLET_ID_PATTERN],
             'payment_channels' => ['sometimes', 'array', 'min:1'],
             'payment_channels.*' => ['distinct', Rule::in(array_keys(PaynamicsService::CHANNELS))],
             'status' => ['sometimes', Rule::in(array_values(GeneralConstants::GENERAL_STATUSES))],
@@ -59,6 +60,7 @@ class UpdatePaymentGatewayRequest extends FormRequest
         return [
             'gateway_id.unique' => 'A payment gateway with this ID already exists.',
             'provider.in' => 'Select PayMongo, PayPal, or Paynamics.',
+            'paybiz_wallet_id.regex' => 'The Paybiz wallet ID may only contain letters, numbers, dashes and underscores.',
             'payment_channels.min' => 'Select at least one payment option enabled on your Paynamics account.',
         ];
     }

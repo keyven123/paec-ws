@@ -26,6 +26,7 @@ class PaymentGatewayResource extends JsonResource
             'secret_key_preview' => PaymentGateway::maskCredential($this->secret_key),
             'api_username_preview' => PaymentGateway::maskCredential($this->api_username, 3),
             'api_password_preview' => PaymentGateway::maskCredential($this->api_password),
+            'paybiz_wallet_id' => $this->provider === 'paynamics' ? $this->paybiz_wallet_id : null,
             'payment_channels' => $this->provider === 'paynamics' ? $this->enabledPaynamicsChannels() : null,
             'status' => $this->status,
             'created_at' => $this->created_at?->toISOString(),

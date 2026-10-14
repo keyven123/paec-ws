@@ -537,6 +537,7 @@ class TempTransactionController extends Controller
 
             $result['transaction']->update([
                 'payment_gateway_uuid' => $gateway?->uuid,
+                'paybiz_wallet_id' => $isPaynamics ? $gateway?->paybiz_wallet_id : null,
                 'payment_id' => $paymentResult['payment_id'],
                 'payment_status' => Transaction::PAYMENT_STATUS['PENDING'],
                 'payment_data' => $paymentResult['raw_response'] ?? [],
@@ -716,13 +717,19 @@ class TempTransactionController extends Controller
     }
 
     /**
-     * Confirms the order and issues tickets immediately without a payment gateway
-     * (used until real payment methods are integrated).
+     * Confirms a free order and issues tickets immediately. Paid orders must go through a payment gateway.
      */
     public function placeOrder(CheckoutFreeTempTransactionRequest $request): JsonResponse
     {
         $payload = $request->validated();
         $tempTransaction = $this->tempTransactionRepository->fetchOrThrow('uuid', $payload['temp_transaction_uuid']);
+
+        if ($tempTransaction->total_amount > 0) {
+            return response()->json([
+                'success' => false,
+                'message' => 'This order requires payment. Please choose a payment method.',
+            ], 400);
+        }
 
         DB::beginTransaction();
 

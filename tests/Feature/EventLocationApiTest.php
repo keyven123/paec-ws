@@ -3,12 +3,15 @@
 namespace Tests\Feature;
 
 use App\Constants\GeneralConstants;
+use App\Http\Repositories\TempTransactionRepository;
+use App\Jobs\SuccessPaymentProcess;
 use App\Models\Category;
 use App\Models\Event;
 use App\Models\EventLocation;
 use App\Models\EventSection;
 use App\Models\EventTicket;
 use App\Models\Organization;
+use App\Models\TempTransaction;
 use App\Models\Transaction;
 use Database\Seeders\AdminRolePermissionSeeder;
 use Database\Seeders\CategorySeeder;
@@ -256,12 +259,14 @@ class EventLocationApiTest extends TestCase
 
         $tempUuid = $tempResponse->json('uuid');
 
-        $this->withToken($this->customerToken)
-            ->postJson('/api/v1/customer/temp-transactions/place-order', [
-                'temp_transaction_uuid' => $tempUuid,
-            ])
-            ->assertCreated()
-            ->assertJsonPath('success', true);
+        $paid = app(TempTransactionRepository::class)
+            ->checkout(TempTransaction::findOrFail($tempUuid), ['payment_provider' => 'paymongo'])['transaction'];
+        $paid->update([
+            'payment_status' => Transaction::PAYMENT_STATUS['PAID'],
+            'order_status' => Transaction::ORDER_STATUS['CONFIRMED'],
+            'paid_at' => now(),
+        ]);
+        SuccessPaymentProcess::dispatchSync($paid->uuid);
 
         $this->assertDatabaseHas('transactions', [
             'event_uuid' => $event->uuid,

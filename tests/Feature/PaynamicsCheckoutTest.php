@@ -3,6 +3,8 @@
 namespace Tests\Feature;
 
 use App\Constants\GeneralConstants;
+use App\Http\Resources\TransactionResource;
+use App\Models\AdminUser;
 use App\Models\Event;
 use App\Models\EventTicket;
 use App\Models\PaymentGateway;
@@ -192,6 +194,7 @@ class PaynamicsCheckoutTest extends TestCase
         $this->assertSame($this->paynamics->uuid, $transaction->payment_gateway_uuid);
         $this->assertSame($transaction->payment_order_id, $transaction->payment_id);
         $this->assertSame(Transaction::PAYMENT_STATUS['PENDING'], $transaction->payment_status);
+        $this->assertNull($transaction->paybiz_wallet_id);
 
         Http::assertSent(function (Request $request) use ($transaction) {
             $trx = $request['transaction'];
@@ -221,6 +224,41 @@ class PaynamicsCheckoutTest extends TestCase
                 && $request['order_details']['totalorderamount'] === $amount
                 && $request['order_details']['orders'][0]['totalprice'] === $amount;
         });
+    }
+
+    #[Test]
+    public function the_paybiz_wallet_used_at_checkout_is_kept_on_the_transaction(): void
+    {
+        $this->paynamics->update(['paybiz_wallet_id' => 'BIZ652HKB3']);
+        Http::fake([self::CREATE_URL => Http::response($this->createdLink())]);
+
+        $uuid = $this->checkout()->assertStatus(201)->json('transaction.uuid');
+
+        Http::assertSent(fn (Request $request) => $request['settlement_information'][0]['biz_wallet_id'] === 'BIZ652HKB3');
+
+        $this->paynamics->update(['paybiz_wallet_id' => 'BIZ-CHANGED']);
+        $this->assertSame('BIZ652HKB3', Transaction::findOrFail($uuid)->paybiz_wallet_id);
+    }
+
+    #[Test]
+    public function only_admins_see_the_paybiz_wallet_of_a_transaction(): void
+    {
+        $transaction = new Transaction(['paybiz_wallet_id' => 'BIZ652HKB3']);
+
+        $this->assertArrayNotHasKey('paybiz_wallet_id', (new TransactionResource($transaction))->resolve(request()));
+
+        $admin = AdminUser::create([
+            'role_uuid' => Role::create(['name' => 'Admin', 'code' => 'admin_wallet_test'])->uuid,
+            'email' => 'wallet.admin@test.com',
+            'password' => 'password123',
+            'first_name' => 'Wallet',
+            'last_name' => 'Admin',
+            'status' => GeneralConstants::GENERAL_STATUSES['ACTIVE'],
+            'email_verified_at' => now(),
+        ]);
+        $this->actingAs($admin, 'admin');
+
+        $this->assertSame('BIZ652HKB3', (new TransactionResource($transaction))->resolve(request())['paybiz_wallet_id']);
     }
 
     #[Test]

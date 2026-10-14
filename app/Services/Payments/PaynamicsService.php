@@ -36,6 +36,8 @@ class PaynamicsService implements PaymentServiceInterface
     /** Paynamics codes for a channel that is not enabled on the merchant account. */
     public const CHANNEL_UNAVAILABLE_CODES = ['GR009', 'GR150'];
 
+    public const PAYBIZ_WALLET_ID_PATTERN = '/^[A-Za-z0-9_-]+$/';
+
     public const CREDENTIALS_ACCEPTED = 'accepted';
     public const CREDENTIALS_REJECTED = 'rejected';
     public const CREDENTIALS_BAD_SIGNATURE = 'bad_signature';
@@ -55,6 +57,7 @@ class PaynamicsService implements PaymentServiceInterface
         private readonly string $apiUsername,
         private readonly string $apiPassword,
         private readonly string $baseUrl,
+        private readonly ?string $paybizWalletId = null,
     ) {
     }
 
@@ -168,6 +171,12 @@ class PaynamicsService implements PaymentServiceInterface
                 'totalorderamount' => $amount,
             ],
         ];
+
+        if (filled($this->paybizWalletId)) {
+            $body['settlement_information'] = [
+                $this->settlement($this->paybizWalletId, $amount, $currency, 'Sale ' . $requestId, 'STL-' . $requestId),
+            ];
+        }
 
         try {
             $response = $this->client()->post('/paygate/transactions/', $body);
@@ -364,6 +373,25 @@ class PaynamicsService implements PaymentServiceInterface
         }
 
         return $result;
+    }
+
+    /**
+     * Split-payment entry that settles $amount of the sale into a Paybiz wallet.
+     *
+     * @return array<string, string>
+     */
+    private function settlement(string $walletId, string $amount, string $currency, string $reason, string $settlementId): array
+    {
+        $entry = [
+            'biz_wallet_id' => $walletId,
+            'settlement_amount' => $amount,
+            'settlement_currency' => $currency,
+            'reason' => $reason,
+            'settlement_id' => $settlementId,
+        ];
+        $entry['signature'] = $this->sign(array_values($entry));
+
+        return $entry;
     }
 
     private function client(): PendingRequest

@@ -27,6 +27,7 @@ class CreatePaymentGatewayRequest extends FormRequest
             'secret_key' => ['required', 'string', 'max:2000'],
             'api_username' => ['exclude_unless:provider,paynamics', 'required', 'string', 'max:255'],
             'api_password' => ['exclude_unless:provider,paynamics', 'required', 'string', 'max:255'],
+            'paybiz_wallet_id' => ['exclude_unless:provider,paynamics', 'nullable', 'string', 'max:64', 'regex:' . PaynamicsService::PAYBIZ_WALLET_ID_PATTERN],
             'payment_channels' => ['exclude_unless:provider,paynamics', 'required', 'array', 'min:1'],
             'payment_channels.*' => ['exclude_unless:provider,paynamics', 'distinct', Rule::in(array_keys(PaynamicsService::CHANNELS))],
             'status' => ['nullable', Rule::in(array_values(GeneralConstants::GENERAL_STATUSES))],
@@ -43,6 +44,7 @@ class CreatePaymentGatewayRequest extends FormRequest
             'provider.in' => 'Select PayMongo, PayPal, or Paynamics.',
             'api_username.required' => 'The Paynamics API username is required.',
             'api_password.required' => 'The Paynamics API password is required.',
+            'paybiz_wallet_id.regex' => 'The Paybiz wallet ID may only contain letters, numbers, dashes and underscores.',
             'payment_channels.required' => 'Select at least one payment option enabled on your Paynamics account.',
             'payment_channels.min' => 'Select at least one payment option enabled on your Paynamics account.',
         ];

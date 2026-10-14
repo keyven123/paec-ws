@@ -313,6 +313,51 @@ class PaynamicsGatewayTest extends TestCase
     }
 
     #[Test]
+    public function a_paybiz_wallet_id_can_be_saved_changed_and_cleared(): void
+    {
+        Http::fake([self::TEST_QUERY_URL => Http::response(['response_code' => 'GR004'])]);
+
+        $uuid = $this->postPaynamics(['paybiz_wallet_id' => 'PBW-0001_main'])
+            ->assertStatus(201)
+            ->assertJsonPath('data.paybiz_wallet_id', 'PBW-0001_main')
+            ->json('data.uuid');
+
+        $this->putGateway($uuid, ['paybiz_wallet_id' => 'PBW-0002'])
+            ->assertOk()
+            ->assertJsonPath('data.paybiz_wallet_id', 'PBW-0002');
+
+        $this->putGateway($uuid, ['paybiz_wallet_id' => ''])
+            ->assertOk()
+            ->assertJsonPath('data.paybiz_wallet_id', null);
+        $this->assertNull(PaymentGateway::find($uuid)->paybiz_wallet_id);
+    }
+
+    #[Test]
+    public function a_paybiz_wallet_id_with_spaces_or_symbols_is_refused(): void
+    {
+        $message = 'The Paybiz wallet ID may only contain letters, numbers, dashes and underscores.';
+
+        $this->postPaynamics(['paybiz_wallet_id' => 'PBW 0001'])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors(['paybiz_wallet_id' => $message]);
+
+        $gateway = PaymentGateway::create([
+            'name' => 'Paynamics',
+            'provider' => 'paynamics',
+            'environment' => 'testing',
+            'gateway_id' => 'paynamics',
+            'public_key' => 'MERCHANT000123',
+            'secret_key' => 'mkey-secret-value',
+            'api_username' => 'paec-api-user',
+            'api_password' => 'paec-api-password',
+            'status' => 'active',
+        ]);
+        $this->putGateway($gateway->uuid, ['paybiz_wallet_id' => 'wallet#1'])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors(['paybiz_wallet_id' => $message]);
+    }
+
+    #[Test]
     public function switching_away_from_paynamics_clears_the_api_credentials(): void
     {
         $gateway = PaymentGateway::create([
@@ -325,6 +370,7 @@ class PaynamicsGatewayTest extends TestCase
             'api_username' => 'paec-api-user',
             'api_password' => 'paec-api-password',
             'payment_channels' => ['gcash'],
+            'paybiz_wallet_id' => 'PBW-0001',
             'status' => 'active',
         ]);
 
@@ -335,11 +381,13 @@ class PaynamicsGatewayTest extends TestCase
         ])
             ->assertOk()
             ->assertJsonPath('data.environment', 'production')
-            ->assertJsonPath('data.payment_channels', null);
+            ->assertJsonPath('data.payment_channels', null)
+            ->assertJsonPath('data.paybiz_wallet_id', null);
 
         $gateway->refresh();
         $this->assertNull($gateway->api_username);
         $this->assertNull($gateway->api_password);
         $this->assertNull($gateway->payment_channels);
+        $this->assertNull($gateway->paybiz_wallet_id);
     }
 }

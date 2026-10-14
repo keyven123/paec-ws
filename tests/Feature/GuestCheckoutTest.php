@@ -45,7 +45,7 @@ class GuestCheckoutTest extends TestCase
             'code' => 'day_pass',
             'name' => 'Day Pass',
             'description' => 'Day Pass',
-            'price' => 500,
+            'price' => 0,
             'max_ticket' => 100,
             'status' => GeneralConstants::GENERAL_STATUSES['ACTIVE'],
         ]);
@@ -72,7 +72,7 @@ class GuestCheckoutTest extends TestCase
     }
 
     #[Test]
-    public function guestCanPayAndTransactionIsRecordedForAdmin(): void
+    public function guestCanPlaceAFreeOrderAndTransactionIsRecordedForAdmin(): void
     {
         config(['app.debug' => false]);
 
@@ -101,13 +101,35 @@ class GuestCheckoutTest extends TestCase
         $transaction = Transaction::where('user_uuid', $guest->uuid)->firstOrFail();
         $this->assertSame(Transaction::PAYMENT_STATUS['PAID'], $transaction->payment_status);
         $this->assertSame(Transaction::ORDER_STATUS['CONFIRMED'], $transaction->order_status);
-        $this->assertEquals(1000, (float) $transaction->total_amount);
+        $this->assertEquals(0, (float) $transaction->total_amount);
 
         $tickets = Ticket::where('transaction_uuid', $transaction->uuid)->get();
         $this->assertCount(2, $tickets);
         $this->assertTrue($tickets->every(
             fn (Ticket $ticket) => $ticket->status === GeneralConstants::TICKET_STATUSES['ACTIVE'] && $ticket->qr_code
         ));
+    }
+
+    #[Test]
+    public function aPaidOrderCannotBePlacedWithoutPayment(): void
+    {
+        $this->eventTicket->update(['price' => 500]);
+
+        $temp = $this->postJson('/api/v1/public/temp-transactions/guest', $this->cartPayload())
+            ->assertStatus(201)
+            ->json();
+
+        $this->postJson('/api/v1/public/temp-transactions/guest/place-order', [
+            'temp_transaction_uuid' => $temp['uuid'],
+            'email' => 'guest.buyer@example.com',
+        ])->assertStatus(400)->assertJson([
+            'success' => false,
+            'message' => 'This order requires payment. Please choose a payment method.',
+        ]);
+
+        $this->assertSame(0, Transaction::count());
+        $this->assertSame(0, Ticket::count());
+        $this->assertDatabaseHas('temp_transactions', ['uuid' => $temp['uuid']]);
     }
 
     #[Test]

@@ -81,6 +81,7 @@ class PaymentGatewayController extends Controller
         if ($gateway->provider !== GeneralConstants::PAYMENT_GATEWAY_PROVIDERS['PAYNAMICS']) {
             $gateway->api_username = null;
             $gateway->api_password = null;
+            $gateway->paybiz_wallet_id = null;
             $gateway->payment_channels = null;
         } elseif (blank($gateway->api_username) || blank($gateway->api_password)) {
             throw ValidationException::withMessages(array_filter([

@@ -49,6 +49,7 @@ class PaymentServiceFactory
                 (string) $gateway->api_username,
                 (string) $gateway->api_password,
                 PaynamicsService::baseUrlFor($gateway->environment),
+                $gateway->paybiz_wallet_id,
             ),
             default => throw new InvalidArgumentException("Online checkout is not available for {$gateway->provider} yet."),
         };

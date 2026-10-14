@@ -37,6 +37,7 @@ class Transaction extends Model
         'payment_order_id', // Existing field for backward compatibility
         'payment_provider', // Existing field
         'payment_gateway_uuid',
+        'paybiz_wallet_id',
         'payment_id', // New field - generic payment ID from any provider
         'payment_data', // New field - JSON field to store raw payment response
         'order_number',

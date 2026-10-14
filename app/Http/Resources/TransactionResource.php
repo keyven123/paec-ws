@@ -33,6 +33,7 @@ class TransactionResource extends JsonResource
             'paypal_order_id' => $this->paypal_order_id,
             'payment_provider' => $this->payment_provider,
             'payment_id' => $this->payment_id,
+            'paybiz_wallet_id' => $this->when(auth('admin')->check(), $this->paybiz_wallet_id),
             'order_number' => $this->order_number,
             'order_qr_code' => $this->qr_code,
             'total_amount' => $this->total_amount,

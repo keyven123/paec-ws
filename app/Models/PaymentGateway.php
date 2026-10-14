@@ -26,6 +26,7 @@ class PaymentGateway extends Model
         'secret_key',
         'api_username',
         'api_password',
+        'paybiz_wallet_id',
         'payment_channels',
         'status',
         'created_by',

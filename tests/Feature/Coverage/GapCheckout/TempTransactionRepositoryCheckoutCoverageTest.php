@@ -7,7 +7,9 @@ use App\Http\Repositories\TempTransactionRepository;
 use App\Jobs\SuccessPaymentProcess;
 use App\Models\Event;
 use App\Models\EventTicketCoupon;
+use App\Models\TempTransaction;
 use App\Models\Ticket;
+use App\Models\Transaction;
 use App\Models\User;
 use App\Models\Venue;
 use App\Models\VenueSeat;
@@ -35,12 +37,14 @@ class TempTransactionRepositoryCheckoutCoverageTest extends TestCase
         $this->customer = $this->createCustomer(['phone_number' => '09171112222']);
     }
 
-    private function placeOrder(string $tempUuid, array $otherInfo = [])
+    private function checkout(TempTransaction $temp, array $otherInfo = []): Transaction
     {
-        return $this->actingAs($this->customer, 'api')->postJson('/api/v1/customer/temp-transactions/place-order', array_filter([
-            'temp_transaction_uuid' => $tempUuid,
-            'other_info' => $otherInfo,
-        ]));
+        $this->actingAs($this->customer, 'api');
+
+        return app(TempTransactionRepository::class)->checkout($temp->fresh(), [
+            'payment_provider' => 'free',
+            'other_info' => $otherInfo ?: null,
+        ])['transaction'];
     }
 
     private function createSeat(Venue $venue, string $row, int $seatNo): VenueSeat
@@ -83,12 +87,12 @@ class TempTransactionRepositoryCheckoutCoverageTest extends TestCase
             ],
         ]);
 
-        $response = $this->placeOrder($temp->uuid, [
+        $transaction = $this->checkout($temp, [
             ['attendee_name' => 'Ana Seat', 'attendee_email' => 'ana@test.com', 'attendee_contact' => '09990001111', 'shirt' => 'M'],
-        ])->assertCreated();
+        ]);
 
         $tickets = Ticket::with('coupons')
-            ->where('transaction_uuid', $response->json('transaction.uuid'))
+            ->where('transaction_uuid', $transaction->uuid)
             ->orderBy('col')
             ->get();
         $this->assertCount(2, $tickets);
@@ -126,9 +130,9 @@ class TempTransactionRepositoryCheckoutCoverageTest extends TestCase
         $eventTicket = $this->createEventTicket($event, ['visit_policy' => 'flexible', 'validity_days' => 3]);
         $temp = $this->createTempTransaction($this->customer, $eventTicket);
 
-        $response = $this->placeOrder($temp->uuid)->assertCreated();
+        $transaction = $this->checkout($temp);
 
-        $ticket = Ticket::where('transaction_uuid', $response->json('transaction.uuid'))->sole();
+        $ticket = Ticket::where('transaction_uuid', $transaction->uuid)->sole();
         $this->assertSame(now()->addDays(3)->endOfDay()->toDateTimeString(), $ticket->valid_until->toDateTimeString());
         $this->assertSame('flexible', $ticket->visit_policy);
     }
@@ -140,11 +144,11 @@ class TempTransactionRepositoryCheckoutCoverageTest extends TestCase
         $eventTicket = $this->createEventTicket($event);
         $temp = $this->createTempTransaction($this->customer, $eventTicket, [], ['quantity' => 2, 'total_amount' => 1000]);
 
-        $response = $this->placeOrder($temp->uuid, [
+        $transaction = $this->checkout($temp, [
             ['attendee_name' => 'Ben Guest', 'attendee_email' => 'ben@test.com', 'attendee_contact' => '09181234567', 'diet' => 'vegan'],
-        ])->assertCreated();
+        ]);
 
-        $tickets = Ticket::where('transaction_uuid', $response->json('transaction.uuid'))->get();
+        $tickets = Ticket::where('transaction_uuid', $transaction->uuid)->get();
         $this->assertCount(2, $tickets);
 
         $named = $tickets->firstWhere('attendee_name', 'Ben Guest');

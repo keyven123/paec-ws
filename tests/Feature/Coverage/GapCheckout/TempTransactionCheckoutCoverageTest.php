@@ -215,7 +215,7 @@ class TempTransactionCheckoutCoverageTest extends TestCase
     {
         Bus::fake([SuccessPaymentProcess::class]);
         $this->useEmptyCheckoutHandlerRegistry();
-        $temp = $this->createTempTransaction($this->customer, $this->ticket);
+        $temp = $this->createTempTransaction($this->customer, $this->ticket, ['sub_total' => 0, 'total_amount' => 0], ['price' => 0, 'total_amount' => 0]);
 
         $response = $this->actingAs($this->customer, 'api')->postJson(self::BASE . '/place-order', [
             'temp_transaction_uuid' => $temp->uuid,
@@ -234,7 +234,7 @@ class TempTransactionCheckoutCoverageTest extends TestCase
     {
         Log::spy();
         $this->failingRepository('checkout');
-        $temp = $this->createTempTransaction($this->customer, $this->ticket);
+        $temp = $this->createTempTransaction($this->customer, $this->ticket, ['sub_total' => 0, 'total_amount' => 0]);
 
         $this->actingAs($this->customer, 'api')->postJson(self::BASE . '/place-order', [
             'temp_transaction_uuid' => $temp->uuid,

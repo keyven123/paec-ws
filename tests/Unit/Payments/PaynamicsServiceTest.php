@@ -2,6 +2,8 @@
 
 namespace Tests\Unit\Payments;
 
+use App\Models\PaymentGateway;
+use App\Services\Payments\PaymentServiceFactory;
 use App\Services\Payments\PaynamicsService;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Request;
@@ -98,6 +100,66 @@ class PaynamicsServiceTest extends TestCase
 
         $this->assertFalse($result['success']);
         Http::assertNothingSent();
+    }
+
+    #[Test]
+    public function a_gateway_paybiz_wallet_receives_the_full_sale_as_a_signed_settlement(): void
+    {
+        Http::fake([self::HOST . '/paygate/transactions/' => Http::response([
+            'response_code' => 'GR001',
+            'payment_action_info' => ['url' => 'https://payin.payserv.net/pay/abc'],
+        ])]);
+        $gateway = new PaymentGateway([
+            'provider' => 'paynamics',
+            'environment' => 'testing',
+            'public_key' => 'MERCHANT000123',
+            'secret_key' => 'mkey-secret-value',
+            'api_username' => 'user',
+            'api_password' => 'pass',
+            'paybiz_wallet_id' => 'PBW-0001',
+        ]);
+
+        $result = PaymentServiceFactory::forGateway($gateway)->createPayment($this->sale());
+
+        $this->assertTrue($result['success']);
+        Http::assertSent(fn (Request $request) => $request['settlement_information'] === [[
+            'biz_wallet_id' => 'PBW-0001',
+            'settlement_amount' => '1250.00',
+            'settlement_currency' => 'PHP',
+            'reason' => 'Sale PAY-20261014-ABCD1234',
+            'settlement_id' => 'STL-PAY-20261014-ABCD1234',
+            'signature' => hash('sha512', 'PBW-0001' . '1250.00' . 'PHP' . 'Sale PAY-20261014-ABCD1234'
+                . 'STL-PAY-20261014-ABCD1234' . 'mkey-secret-value'),
+        ]]);
+    }
+
+    #[Test]
+    public function without_a_paybiz_wallet_the_sale_settles_to_the_merchant_account(): void
+    {
+        Http::fake([self::HOST . '/paygate/transactions/' => Http::response([
+            'response_code' => 'GR001',
+            'payment_action_info' => ['url' => 'https://payin.payserv.net/pay/abc'],
+        ])]);
+
+        $this->assertTrue($this->service()->createPayment($this->sale())['success']);
+        Http::assertSent(fn (Request $request) => ! isset($request['settlement_information']));
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function sale(): array
+    {
+        return [
+            'reference_id' => 'PAY-20261014-ABCD1234',
+            'amount' => 1250,
+            'currency' => 'PHP',
+            'description' => 'Tickets',
+            'return_url' => 'https://example.test/return',
+            'cancel_url' => 'https://example.test/cancel',
+            'notification_url' => 'https://example.test/notify',
+            'payment_channel' => 'gcash',
+        ];
     }
 
     #[Test]
