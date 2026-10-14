@@ -15,7 +15,7 @@ use SimpleSoftwareIO\QrCode\Facades\QrCode as SimpleQrCode;
  */
 final class TicketQrPngService
 {
-    private const EMAIL_BRAND_LOGO = 'emails/asset/ticketoc_thumbnail.png';
+    private const EMAIL_BRAND_LOGO = 'emails/asset/paec_thumbnail.png';
 
     public function logoAbsolutePath(): string
     {

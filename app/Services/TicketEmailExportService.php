@@ -17,6 +17,11 @@ use Illuminate\Support\Str;
  */
 final class TicketEmailExportService
 {
+    /** Pixel size of the event image on the ticket card (2.67× the 162×150pt frame). */
+    private const THUMBNAIL_WIDTH = 432;
+
+    private const THUMBNAIL_HEIGHT = 400;
+
     public function __construct(
         private readonly TicketQrPngService $qrPngService,
     ) {
@@ -177,25 +182,22 @@ final class TicketEmailExportService
         $portraitUrl = $event?->portraitImage?->url;
         $eventImageDataUri = $this->fetchImageAsDataUri($portraitUrl);
 
-        $siteLogoDataUri = $this->fileToDataUri(public_path('images/logo/ticketoc.png'))
+        $siteLogoDataUri = $this->fileToDataUri(public_path('images/logo/paec-logo.png'))
             ?? $this->fileToDataUri($this->qrPngService->logoAbsolutePath());
 
         $qrBinary = $this->qrPngService->pngBinary($ticket->qr_code ?? '');
         $qrImageSrc = $this->resolvePngSrcForDompdf($qrBinary, 'ticket:' . (string) $ticket->uuid);
 
-        $venueName = $ticket->venueSeat?->venue?->name ?? $event?->address ?? '—';
+        $venueName = $ticket->eventLocation?->displayLabel() ?? $ticket->venueSeat?->venue?->name ?? $event?->address ?? '—';
 
         $price = (float) ($ticket->price ?? $ticket->eventTicket?->price ?? 0);
 
-        $schedule = $transaction->schedule;
         $scheduleTime = $transaction->scheduleTime;
 
-        $scheduleDateFormatted = $schedule?->date_from
-            ? Carbon::parse($schedule->date_from)->format('F j, Y')
-            : '—';
-        $scheduleDayUpper = $schedule?->date_from
-            ? strtoupper(Carbon::parse($schedule->date_from)->format('l'))
-            : '';
+        // Dated tickets carry their visit day; otherwise fall back to the event schedule.
+        $visitDate = $ticket->valid_until ?? $transaction->schedule?->date_from;
+        $scheduleDateFormatted = $visitDate ? Carbon::parse($visitDate)->format('F j, Y') : '—';
+        $scheduleDayUpper = $visitDate ? strtoupper(Carbon::parse($visitDate)->format('l')) : '';
 
         $scheduleRange = $this->formatScheduleTimeRange($scheduleTime);
 
@@ -215,10 +217,12 @@ final class TicketEmailExportService
             'qrText' => $ticket->status === 'active' ? ($ticket->qr_code ?? '') : '',
             'priceFormatted' => '₱' . number_format($price, 2),
             'purchasedAt' => $ticket->created_at?->format('m/d/Y H:i') ?? '—',
+            'dateLabel' => $ticket->visit_policy === 'flexible' ? 'Valid until' : 'Date of visit',
             'scheduleDateFormatted' => $scheduleDateFormatted,
             'scheduleDayUpper' => $scheduleDayUpper,
             'scheduleRange' => $scheduleRange,
             'seat' => $seat,
+            'attendeeName' => $ticket->attendee_name ?: '—',
         ];
     }
 
@@ -258,9 +262,9 @@ final class TicketEmailExportService
                 return 'file://' . $normalized;
             }
 
-            // Windows: C:/...
+            // Windows: Dompdf cannot parse file:///C:/... URLs but loads plain drive paths.
             if (preg_match('#^[A-Za-z]:/#', $normalized) === 1) {
-                return 'file:///' . $normalized;
+                return $normalized;
             }
 
             return 'data:image/png;base64,' . base64_encode($qrBinary);
@@ -355,6 +359,12 @@ final class TicketEmailExportService
             if ($bin === '') {
                 return null;
             }
+
+            $thumbnail = $this->ticketThumbnail($bin);
+            if ($thumbnail !== null) {
+                return 'data:image/jpeg;base64,' . base64_encode($thumbnail);
+            }
+
             $mime = $response->header('Content-Type');
             if (! is_string($mime) || ! str_starts_with($mime, 'image/')) {
                 $mime = 'image/jpeg';
@@ -366,6 +376,42 @@ final class TicketEmailExportService
 
             return null;
         }
+    }
+
+    /**
+     * Centre-crops the event image to the ticket's image frame and shrinks it, keeping attachments small.
+     * Dompdf has no object-fit, so an uncropped image would be stretched. Returns null for non-images.
+     */
+    private function ticketThumbnail(string $bin): ?string
+    {
+        $image = @imagecreatefromstring($bin);
+        if ($image === false) {
+            return null;
+        }
+
+        [$width, $height] = [imagesx($image), imagesy($image)];
+        $cropWidth = (int) min($width, round($height * self::THUMBNAIL_WIDTH / self::THUMBNAIL_HEIGHT));
+        $cropHeight = (int) min($height, round($width * self::THUMBNAIL_HEIGHT / self::THUMBNAIL_WIDTH));
+
+        $canvas = imagecreatetruecolor(self::THUMBNAIL_WIDTH, self::THUMBNAIL_HEIGHT);
+        imagefill($canvas, 0, 0, imagecolorallocate($canvas, 255, 255, 255));
+        imagecopyresampled(
+            $canvas,
+            $image,
+            0,
+            0,
+            intdiv($width - $cropWidth, 2),
+            intdiv($height - $cropHeight, 2),
+            self::THUMBNAIL_WIDTH,
+            self::THUMBNAIL_HEIGHT,
+            $cropWidth,
+            $cropHeight,
+        );
+
+        ob_start();
+        imagejpeg($canvas, null, 82);
+
+        return (string) ob_get_clean();
     }
 
     private function pdfBlobToPng(string $pdf): ?string

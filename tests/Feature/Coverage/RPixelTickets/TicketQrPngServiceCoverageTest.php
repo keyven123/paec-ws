@@ -37,7 +37,7 @@ class TicketQrPngServiceCoverageTest extends TestCase
     {
         $path = $this->service()->logoAbsolutePath();
 
-        $this->assertSame(resource_path('views/emails/asset/ticketoc_thumbnail.png'), $path);
+        $this->assertSame(resource_path('views/emails/asset/paec_thumbnail.png'), $path);
         $this->assertFileExists($path);
     }
 

@@ -30,6 +30,7 @@ use App\Models\EventTicket;
 use App\Models\PaymentGateway;
 use App\Models\TempTransaction;
 use App\Models\Transaction;
+use App\Notifications\PaymentCancelledNotification;
 use App\Models\User;
 use App\Services\Checkout\GuestCustomerService;
 use Illuminate\Http\Request;
@@ -1040,6 +1041,7 @@ class TempTransactionController extends Controller
                 foreach ($tickets as $ticket) {
                     $ticket->delete();
                 }
+                $this->notifyOrderCancelled($transaction);
 
                 return response()->json([
                     'success' => false,
@@ -1153,12 +1155,23 @@ class TempTransactionController extends Controller
         foreach ($tickets as $ticket) {
             $ticket->delete();
         }
+        $this->notifyOrderCancelled($freshTransaction);
 
         return response()->json([
             'success' => true,
             'transaction' => $freshTransaction,
             'message' => 'Payment cancelled successfully'
         ]);
+    }
+
+    /**
+     * Ticket orders only; venue bookings send their own emails.
+     */
+    private function notifyOrderCancelled(Transaction $transaction): void
+    {
+        if ($transaction->event_uuid !== null && $transaction->user !== null) {
+            $transaction->user->notify(new PaymentCancelledNotification($transaction->uuid));
+        }
     }
 
     /**

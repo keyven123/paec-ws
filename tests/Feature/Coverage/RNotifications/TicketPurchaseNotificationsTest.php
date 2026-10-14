@@ -132,14 +132,105 @@ class TicketPurchaseNotificationsTest extends TestCase
 
         $this->assertSame(['mail'], $notification->via($transaction->user));
         $this->assertSame([], $notification->toArray($transaction->user));
-        $this->assertSame('[Ticketoc] Your payment has been successful!', $mail->subject);
-        $this->assertSame('emails.payment-successful-dark-v2', $mail->view);
+        $this->assertSame('Your PAEC booking is confirmed – Order ORD-RNOTIF-0001', $mail->subject);
+        $this->assertSame('emails.paec.booking-confirmed', $mail->view);
+        $this->assertTrue($mail->viewData['data']['has_ticket_file_attachments']);
         $this->assertSame(1, $stub->ticketCalls);
         $this->assertSame(1, $stub->couponCalls);
         $this->assertSame(
             [['ticket.pdf', 'TICKET-PDF', 'application/pdf'], ['coupons.pdf', 'COUPON-PDF', 'application/pdf']],
             array_map(fn ($a) => [$a['name'], $a['data'], $a['options']['mime']], $mail->rawAttachments),
         );
+        $this->assertSame([], $mail->bcc);
+    }
+
+    #[Test]
+    public function thePaymentEmailIsBlindCopiedToThePaecMailboxes(): void
+    {
+        Http::preventStrayRequests();
+        Http::fake();
+        $this->bindExportServiceStub();
+        config(['mail.copy_to' => ['orders@paec.test', 'audit@paec.test']]);
+        $transaction = $this->createPaidTransaction(withPortrait: false);
+
+        $mail = (new PaymentSuccessfulNotification($transaction->uuid))->toMail($transaction->user);
+
+        $this->assertSame([['orders@paec.test', null], ['audit@paec.test', null]], $mail->bcc);
+        $this->assertFalse($mail->viewData['data']['has_ticket_file_attachments']);
+    }
+
+    #[Test]
+    public function thePaymentEmailSummarisesTheOrderTicketsAndPayment(): void
+    {
+        Http::preventStrayRequests();
+        Http::fake();
+        $this->bindExportServiceStub();
+        $transaction = $this->createPaidTransaction(withPortrait: false, qrCode: 'QR-SUMMARY-1');
+        $transaction->update([
+            'payment_provider' => 'paynamics',
+            'payment_id' => 'PAY-20261014-SUMMARY1',
+            'sub_total' => 2500,
+            'discount' => 300,
+            'tax_amount' => 120,
+            'total_amount' => 2320,
+        ]);
+        $ticket = $transaction->tickets->first();
+        $ticket->update(['ticket_number' => 'TKT-SUM-1', 'row' => 'A', 'col' => '4', 'valid_until' => '2026-12-24 23:59:59']);
+        $transaction->transactionOrders()->create([
+            'user_uuid' => $transaction->user_uuid,
+            'event_ticket_uuid' => $ticket->event_ticket_uuid,
+            'quantity' => 1,
+            'price' => 2500,
+            'total_amount' => 2500,
+            'valid_until' => '2026-12-24 23:59:59',
+        ]);
+
+        $mail = (new PaymentSuccessfulNotification($transaction->uuid))->toMail($transaction->user);
+        $data = $mail->viewData['data'];
+        $html = (string) $mail->render();
+
+        $this->assertSame($transaction->user->first_name, $data['customer_name']);
+        $this->assertFalse($data['is_guest']);
+        $this->assertSame('Paynamics', $data['payment_method']);
+        $this->assertSame('PAY-20261014-SUMMARY1', $data['payment_reference']);
+        $this->assertSame('October 1, 2026 10:30 AM', $data['paid_at']);
+        $this->assertSame('7:00 PM – 9:00 PM', $data['event_time']);
+        $this->assertSame([['name' => 'VIP', 'quantity' => 1, 'visit_date' => 'Thu, December 24, 2026', 'total' => '₱2,500.00']], $data['items']);
+        $this->assertSame(['₱2,500.00', '₱300.00', '₱120.00', '₱2,320.00'], [$data['sub_total'], $data['discount'], $data['tax'], $data['total']]);
+        $this->assertSame([
+            'ticket_number' => 'TKT-SUM-1',
+            'type' => 'VIP',
+            'attendee_name' => 'Juan Dela Cruz',
+            'visit_date' => 'Thu, December 24, 2026',
+            'location' => null,
+            'seat' => 'A-4',
+            'raw_qr_code' => 'QR-SUMMARY-1',
+        ], array_intersect_key($data['tickets'][0], array_flip(['ticket_number', 'type', 'attendee_name', 'visit_date', 'location', 'seat', 'raw_qr_code'])));
+        $this->assertStringStartsWith("\x89PNG", $data['tickets'][0]['qr_png']);
+        $this->assertStringContainsString('Your booking is confirmed', $html);
+        $this->assertStringContainsString('TKT-SUM-1', $html);
+        $this->assertStringContainsString('View my tickets', $html);
+    }
+
+    #[Test]
+    public function aGuestBuyerIsAskedToKeepTheEmailInsteadOfOpeningTheirAccount(): void
+    {
+        Http::preventStrayRequests();
+        Http::fake();
+        $this->bindExportServiceStub();
+        $transaction = $this->createPaidTransaction(withPortrait: false);
+        $transaction->user->update(['provider' => \App\Models\User::GUEST_PROVIDER]);
+        $transaction->update(['payment_provider' => 'bank-transfer']);
+
+        $mail = (new PaymentSuccessfulNotification($transaction->uuid))->toMail($transaction->user);
+        $html = (string) $mail->render();
+
+        $this->assertTrue($mail->viewData['data']['is_guest']);
+        $this->assertSame('Bank-transfer', $mail->viewData['data']['payment_method']);
+        $this->assertNull($mail->viewData['data']['discount']);
+        $this->assertNull($mail->viewData['data']['tax']);
+        $this->assertStringContainsString('You checked out as a guest', $html);
+        $this->assertStringNotContainsString('View my tickets', $html);
     }
 
     #[Test]
@@ -154,7 +245,7 @@ class TicketPurchaseNotificationsTest extends TestCase
             ->toMail($transaction->user);
         $html = (string) $mail->render();
 
-        $this->assertSame('[Ticketoc] Your ticket has been upgraded!', $mail->subject);
+        $this->assertSame('Your PAEC ticket has been upgraded – Order ORD-RNOTIF-0001', $mail->subject);
         $this->assertSame('Ticket upgraded', $mail->viewData['data']['email_page_title']);
         $this->assertSame([], $mail->rawAttachments);
         $this->assertStringContainsString('Coverage Concert', $html);

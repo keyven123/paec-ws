@@ -115,4 +115,16 @@ return [
         'name' => env('MAIL_FROM_NAME', env('APP_NAME', 'Laravel')),
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | PAEC Copy
+    |--------------------------------------------------------------------------
+    |
+    | Comma-separated mailboxes that receive a blind copy of every order
+    | confirmation and cancellation email sent to customers.
+    |
+    */
+
+    'copy_to' => array_values(array_filter(array_map('trim', explode(',', (string) env('MAIL_COPY_TO_ADDRESS', ''))))),
+
 ];

@@ -2,7 +2,9 @@
 
 namespace App\Notifications;
 
+use App\Models\Ticket;
 use App\Models\Transaction;
+use App\Notifications\Concerns\BuildsOrderEmail;
 use App\Services\TicketEmailExportService;
 use App\Services\TicketQrPngService;
 use Carbon\Carbon;
@@ -14,6 +16,7 @@ use Illuminate\Support\Facades\Http;
 
 class PaymentSuccessfulNotification extends Notification implements ShouldQueue
 {
+    use BuildsOrderEmail;
     use Queueable;
 
     public const CONTEXT_PAYMENT = 'payment';
@@ -91,10 +94,13 @@ class PaymentSuccessfulNotification extends Notification implements ShouldQueue
         $transaction = Transaction::query()
             ->where('uuid', $this->transactionUuid)
             ->with([
+                'user',
                 'event.portraitImage',
                 'schedule',
                 'scheduleTime',
+                'transactionOrders.eventTicket',
                 'tickets.eventTicket',
+                'tickets.eventLocation',
                 'tickets.venueSeat.venue',
                 'tickets.coupons',
             ])
@@ -102,113 +108,63 @@ class PaymentSuccessfulNotification extends Notification implements ShouldQueue
 
         $qrPng = app(TicketQrPngService::class);
 
-        $portraitUrl = $transaction->event->portraitImage?->url;
-        $eventPortraitEmbed = $this->portraitImageForEmbed($portraitUrl);
+        $portraitUrl = $transaction->event?->portraitImage?->url;
+        $scheduleTime = $transaction->scheduleTime;
+        $eventTime = $scheduleTime
+            ? Carbon::parse($scheduleTime->time_start)->format('g:i A') . ' – ' . Carbon::parse($scheduleTime->time_end)->format('g:i A')
+            : null;
 
-        $tickets = $transaction->tickets->map(function ($ticket) use ($transaction, $qrPng) {
-            $qrBinary = null;
-            if (! empty($ticket->qr_code)) {
-                $qrBinary = $qrPng->pngBinary($ticket->qr_code);
-            }
-
-            return [
-                'uuid' => $ticket->uuid,
-                'row' => $ticket->row,
-                'col' => $ticket->col,
-                'qr_png' => $qrBinary,
-                'qr_cid_name' => 'qr-' . str_replace('-', '', (string) $ticket->uuid) . '.png',
-                'raw_qr_code' => $ticket->qr_code,
-                'attendee_name' => $ticket->attendee_name,
-                'attendee_email' => $ticket->attendee_email,
-                'attendee_contact' => $ticket->attendee_contact,
-                'purchased_at' => $ticket->created_at?->format('F d, Y H:i'),
-                'status' => $ticket->status,
-                'event_date' => $transaction->schedule
-                    ? $transaction->schedule->date_from?->format('F d, Y')
-                    : null,
-                'event_time' => $transaction->scheduleTime
-                    ? $transaction->scheduleTime->time_start . ' - ' . $transaction->scheduleTime->time_end
-                    : null,
-                'eventTicket' => [
-                    'name' => $ticket->eventTicket?->name ?? 'Regular',
-                    'price' => $ticket->eventTicket?->price ?? 0,
-                ],
-            ];
-        })->toArray();
+        $tickets = $transaction->tickets->map(fn (Ticket $ticket) => [
+            'uuid' => $ticket->uuid,
+            'ticket_number' => $ticket->ticket_number,
+            'type' => $ticket->eventTicket?->name ?? 'General Admission',
+            'attendee_name' => $ticket->attendee_name,
+            'visit_date' => $ticket->resolveDateOfVisit()?->format('D, F j, Y'),
+            'location' => $ticket->eventLocation?->displayLabel() ?? $transaction->event?->address,
+            'seat' => $ticket->row !== null && $ticket->col !== null ? "{$ticket->row}-{$ticket->col}" : null,
+            'raw_qr_code' => $ticket->qr_code,
+            'qr_png' => $qrPng->pngBinary($ticket->qr_code),
+            'qr_cid_name' => 'qr-' . str_replace('-', '', (string) $ticket->uuid) . '.png',
+        ])->all();
 
         $isUpgrade = $this->context === self::CONTEXT_UPGRADE;
 
-        $payload = [
+        $payload = array_merge($this->orderSummary($transaction), [
             'email_context' => $this->context,
-            'email_page_title' => $isUpgrade ? 'Ticket upgraded' : 'Payment Successful',
-            'email_headline' => $isUpgrade ? '🎟️ Ticket upgraded successfully' : '🎟️ Payment Successful',
-            'email_footer_thanks' => $isUpgrade
-                ? 'Thank you for using <strong style="color:#FFD700;">Ticketoc</strong>! Your upgraded ticket and coupons are below.'
-                : 'Thank you for purchasing with <strong style="color:#FFD700;">Ticketoc</strong>!',
+            'email_page_title' => $isUpgrade ? 'Ticket upgraded' : 'Booking confirmed',
+            'headline' => $isUpgrade ? 'Your ticket has been upgraded' : 'Your booking is confirmed',
+            'intro' => $isUpgrade
+                ? 'Your upgrade is complete. Your updated ticket is below and attached to this email.'
+                : 'Thank you for booking with PAEC. Your payment was received and your tickets are ready.',
             'event_image' => $portraitUrl,
-            'event_portrait_embed' => $eventPortraitEmbed,
-            'event_name' => $transaction->event->event_name,
-            'event_date' => $transaction->schedule
-                ? $transaction->schedule->date_from?->format('F d, Y')
-                : null,
-            'event_time' => $transaction->scheduleTime
-                ? $transaction->scheduleTime->time_start . ' - ' . $transaction->scheduleTime->time_end
-                : null,
-            'transaction' => [
-                'order_number' => $transaction->order_number,
-                'total_amount' => $transaction->total_amount,
-                'payment_status' => $transaction->payment_status,
-                'order_status' => $transaction->order_status,
-                'paid_at' => $transaction->paid_at
-                    ? Carbon::parse($transaction->paid_at)->format('F d, Y H:i')
-                    : null,
-            ],
+            'event_portrait_embed' => $this->portraitImageForEmbed($portraitUrl),
+            'event_time' => $eventTime,
+            'paid_at' => $transaction->paid_at?->timezone('Asia/Manila')->format('F j, Y g:i A'),
             'tickets' => $tickets,
-            'privacy_policy_link' => config('app.frontend_url') . '/privacy-policy',
-            'tc_link' => config('app.frontend_url') . '/terms-and-conditions',
-            'current_year' => Carbon::now()->format('Y'),
-            'view_ticket' => rtrim((string) config('app.frontend_url'), '/') . '/account/tickets',
-            'view_coupons' => rtrim((string) config('app.frontend_url'), '/') . '/account/coupons',
             'has_ticket_file_attachments' => false,
-            'has_coupon_attachments' => false,
-        ];
+        ]);
 
         $subject = $isUpgrade
-            ? '[Ticketoc] Your ticket has been upgraded!'
-            : '[Ticketoc] Your payment has been successful!';
+            ? "Your PAEC ticket has been upgraded – Order {$transaction->order_number}"
+            : "Your PAEC booking is confirmed – Order {$transaction->order_number}";
 
-        $mail = (new MailMessage())
-            ->view('emails.payment-successful-dark-v2', ['data' => $payload])
-            ->subject($subject);
+        $mail = (new MailMessage())->subject($subject);
 
         $export = app(TicketEmailExportService::class);
-        $attached = 0;
         foreach ($transaction->tickets as $ticket) {
             $attachment = $export->buildAttachment($transaction, $ticket);
             if ($attachment !== null) {
                 $mail->attachData($attachment['data'], $attachment['filename'], ['mime' => $attachment['mime']]);
-                $attached++;
+                $payload['has_ticket_file_attachments'] = true;
             }
-        }
 
-        if ($attached > 0) {
-            $payload['has_ticket_file_attachments'] = true;
-        }
-
-        $couponAttached = 0;
-        foreach ($transaction->tickets as $ticket) {
             $couponPack = $export->buildCouponsAttachment($transaction, $ticket);
             if ($couponPack !== null) {
                 $mail->attachData($couponPack['data'], $couponPack['filename'], ['mime' => $couponPack['mime']]);
-                $couponAttached++;
             }
         }
 
-        if ($couponAttached > 0) {
-            $payload['has_coupon_attachments'] = true;
-        }
-
-        return $mail;
+        return $this->withPaecCopy($mail->view('emails.paec.booking-confirmed', ['data' => $payload]));
     }
 
     /**

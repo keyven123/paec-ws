@@ -11,11 +11,14 @@ use App\Models\PaymentGateway;
 use App\Models\Role;
 use App\Models\Ticket;
 use App\Models\Transaction;
+use App\Notifications\PaymentCancelledNotification;
+use App\Notifications\PaymentSuccessfulNotification;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Factory as HttpFactory;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Notification;
 use PHPUnit\Framework\Attributes\Test;
 use Tests\TestCase;
 
@@ -475,6 +478,47 @@ class PaynamicsCheckoutTest extends TestCase
 
         $this->assertSame(Transaction::PAYMENT_STATUS['CANCELLED'], $transaction->fresh()->payment_status);
         $this->assertSame(0, Ticket::where('transaction_uuid', $transaction->uuid)->count());
+    }
+
+    #[Test]
+    public function the_buyer_is_emailed_when_the_gateway_fails_the_payment(): void
+    {
+        Notification::fake();
+        $transaction = $this->checkedOutTransaction('GR003');
+
+        $this->complete($transaction)->assertJsonPath('message', 'Payment failed');
+
+        Notification::assertSentTo(
+            $transaction->user,
+            PaymentCancelledNotification::class,
+            fn (PaymentCancelledNotification $n) => $n->transactionUuid === $transaction->uuid,
+        );
+        Notification::assertNotSentTo($transaction->user, PaymentSuccessfulNotification::class);
+    }
+
+    #[Test]
+    public function the_buyer_is_emailed_when_they_cancel_an_unpaid_order(): void
+    {
+        Notification::fake();
+        $transaction = $this->checkedOutTransaction('GR033');
+
+        $this->postJson("/api/v1/public/transactions/{$transaction->uuid}/guest/cancel", ['email' => self::GUEST_EMAIL])
+            ->assertJsonPath('message', 'Payment cancelled successfully');
+
+        Notification::assertSentToTimes($transaction->user, PaymentCancelledNotification::class, 1);
+    }
+
+    #[Test]
+    public function a_paid_order_gets_the_confirmation_and_never_the_cancellation(): void
+    {
+        Notification::fake();
+        $transaction = $this->checkedOutTransaction('GR001');
+
+        $this->postJson("/api/v1/public/transactions/{$transaction->uuid}/guest/cancel", ['email' => self::GUEST_EMAIL])
+            ->assertJsonPath('message', 'Payment completed successfully');
+
+        Notification::assertSentTo($transaction->user, PaymentSuccessfulNotification::class);
+        Notification::assertNotSentTo($transaction->user, PaymentCancelledNotification::class);
     }
 
     #[Test]

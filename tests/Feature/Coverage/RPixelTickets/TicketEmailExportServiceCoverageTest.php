@@ -6,6 +6,7 @@ require_once __DIR__ . '/Support/function_shims.php';
 require_once __DIR__ . '/Support/FakeImagick.php';
 
 use App\Models\Event;
+use App\Models\EventLocation;
 use App\Models\ScheduleTime;
 use App\Models\Ticket;
 use App\Models\TicketCoupon;
@@ -24,10 +25,6 @@ use PHPUnit\Framework\Attributes\Test;
 use Tests\Feature\Coverage\RPixelTickets\Support\FunctionShims;
 use Tests\TestCase;
 
-/**
- * The app does not ship resources/views/pdf/ticket-email-card.blade.php nor
- * pdf/ticket-coupons-email-pack.blade.php, so these tests register minimal fixture views.
- */
 class TicketEmailExportServiceCoverageTest extends TestCase
 {
     use RefreshDatabase;
@@ -43,7 +40,6 @@ class TicketEmailExportServiceCoverageTest extends TestCase
         parent::setUp();
 
         Http::preventStrayRequests();
-        View::addLocation(__DIR__ . '/views');
 
         $this->sandbox = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'rpix-' . Str::random(12);
         File::ensureDirectoryExists($this->sandbox . '/storage/app');
@@ -125,6 +121,16 @@ class TicketEmailExportServiceCoverageTest extends TestCase
             . hash('sha256', $cacheKey . "\0" . hash('sha256', $binary)) . '.png';
     }
 
+    /**
+     * Dompdf reads POSIX cache files through file:// URLs and Windows ones as plain drive paths.
+     */
+    private function qrFileSrc(string $cacheFile): string
+    {
+        $normalized = str_replace('\\', '/', realpath($cacheFile));
+
+        return str_starts_with($normalized, '/') ? 'file://' . $normalized : $normalized;
+    }
+
     private function qrDataUri(string $payload): string
     {
         return 'data:image/png;base64,' . base64_encode((new TicketQrPngService)->pngBinary($payload));
@@ -178,7 +184,51 @@ class TicketEmailExportServiceCoverageTest extends TestCase
 
         $cacheFile = $this->qrCacheFile('ticket:' . $ticket->uuid, 'QR-SUMMER-0001');
         $this->assertFileExists($cacheFile);
-        $this->assertSame('file:///' . str_replace('\\', '/', realpath($cacheFile)), $data['qrImageSrc']);
+        $this->assertSame($this->qrFileSrc($cacheFile), $data['qrImageSrc']);
+        $this->assertSame('Date of visit', $data['dateLabel']);
+        $this->assertSame('Attendee', $data['attendeeName']);
+    }
+
+    #[Test]
+    public function buildAttachmentShowsTheTicketsOwnVisitDayLocationAndGuest(): void
+    {
+        [$transaction, $ticket, $event] = $this->makeTicket([
+            'valid_until' => '2027-01-15 23:59:59',
+            'visit_policy' => 'flexible',
+            'attendee_name' => 'Maria Santos',
+        ]);
+        $location = EventLocation::create(['event_uuid' => $event->uuid, 'name' => 'PAEC Bay Area Branch', 'city' => 'Pasay']);
+        $ticket->update(['event_location_uuid' => $location->uuid]);
+
+        $this->service()->buildAttachment($transaction, $ticket->fresh());
+
+        $data = $this->viewData['pdf.ticket-email-card'];
+        $this->assertSame('PAEC Bay Area Branch', $data['venue']);
+        $this->assertSame('Valid until', $data['dateLabel']);
+        $this->assertSame('January 15, 2027', $data['scheduleDateFormatted']);
+        $this->assertSame('FRIDAY', $data['scheduleDayUpper']);
+        $this->assertSame('Maria Santos', $data['attendeeName']);
+    }
+
+    #[Test]
+    public function buildAttachmentCropsAndShrinksTheEventImageToTheTicketFrame(): void
+    {
+        $poster = imagecreatetruecolor(1200, 1800);
+        ob_start();
+        imagepng($poster);
+        $png = (string) ob_get_clean();
+        Http::fake(['cdn.test/*' => Http::response($png, 200, ['Content-Type' => 'image/png'])]);
+        [$transaction, $ticket, $event] = $this->makeTicket();
+        $event->setRelation('portraitImage', new Upload(['path' => 'https://cdn.test/poster.png']));
+        $ticket->setRelation('event', $event);
+
+        $this->service()->buildAttachment($transaction, $ticket);
+
+        $src = $this->viewData['pdf.ticket-email-card']['eventImageDataUri'];
+        $this->assertStringStartsWith('data:image/jpeg;base64,', $src);
+        $jpeg = base64_decode(substr($src, strlen('data:image/jpeg;base64,')));
+        $this->assertSame([432, 400], array_slice(getimagesizefromstring($jpeg), 0, 2));
+        $this->assertLessThan(strlen($png), strlen($jpeg));
     }
 
     #[Test]
@@ -344,7 +394,7 @@ class TicketEmailExportServiceCoverageTest extends TestCase
         imagegif($image);
         $gif = ob_get_clean();
         File::ensureDirectoryExists(public_path('images/logo'));
-        File::put(public_path('images/logo/ticketoc.png'), $gif);
+        File::put(public_path('images/logo/paec-logo.png'), $gif);
         [$transaction, $ticket] = $this->makeTicket();
 
         $this->service()->buildAttachment($transaction, $ticket);
@@ -356,7 +406,7 @@ class TicketEmailExportServiceCoverageTest extends TestCase
     public function buildAttachmentFallsBackToQrLogoWhenPublicLogoIsEmpty(): void
     {
         File::ensureDirectoryExists(public_path('images/logo'));
-        File::put(public_path('images/logo/ticketoc.png'), '');
+        File::put(public_path('images/logo/paec-logo.png'), '');
         [$transaction, $ticket] = $this->makeTicket();
 
         $this->service()->buildAttachment($transaction, $ticket);
@@ -476,7 +526,7 @@ class TicketEmailExportServiceCoverageTest extends TestCase
         $this->assertSame(['Free Drink', 'Free Snack'], array_column($data['coupons'], 'name'));
         $this->assertSame(['CPN-DRINK', 'CPN-SNACK'], array_column($data['coupons'], 'qrText'));
         $cacheFile = $this->qrCacheFile('coupon:' . $drink->uuid, 'CPN-DRINK');
-        $this->assertSame('file:///' . str_replace('\\', '/', realpath($cacheFile)), $data['coupons'][0]['qrImageSrc']);
+        $this->assertSame($this->qrFileSrc($cacheFile), $data['coupons'][0]['qrImageSrc']);
     }
 
     #[Test]
