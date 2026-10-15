@@ -54,8 +54,8 @@
                                             <td style="padding:18px 20px; font-size:13px; line-height:20px; color:#4c1d95;">
                                                 <strong style="display:block; font-size:14px; margin-bottom:2px;">Need help with your order?</strong>
                                                 Reply to this email or write to
-                                                <a href="mailto:{{ $data['support_email'] ?? '' }}" style="color:#7c3aed; font-weight:600; text-decoration:none;">{{ $data['support_email'] ?? '' }}</a>
-                                                and include your order number <strong>{{ $data['order_number'] ?? '' }}</strong>.
+                                                <a href="mailto:{{ $data['support_email'] ?? '' }}" style="color:#7c3aed; font-weight:600; text-decoration:none;">{{ $data['support_email'] ?? '' }}</a>@if (! empty($data['order_number']))
+                                                and include your order number <strong>{{ $data['order_number'] }}</strong>@endif.
                                             </td>
                                         </tr>
                                     </table>
@@ -67,7 +67,7 @@
                 <tr>
                     <td align="center" class="px" style="padding:24px 40px 8px 40px; font-size:12px; line-height:18px; color:#6b7280;">
                         <strong style="color:#4c1d95;">Philippine Amusement and Entertainment Corporation</strong><br>
-                        You received this email because an order was placed with this email address.<br>
+                        {{ $data['footer_reason'] ?? 'You received this email because an order was placed with this email address.' }}<br>
                         <a href="{{ $data['privacy_url'] ?? '#' }}" style="color:#7c3aed; text-decoration:none;">Privacy Policy</a>
                         &nbsp;·&nbsp;
                         <a href="{{ $data['terms_url'] ?? '#' }}" style="color:#7c3aed; text-decoration:none;">Terms &amp; Conditions</a>

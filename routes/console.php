@@ -10,3 +10,4 @@ Artisan::command('inspire', function () {
 
 Schedule::command('app:expire-tickets')->dailyAt('00:10');
 Schedule::command('app:auto-verify-pending-transaction')->everyFiveMinutes()->withoutOverlapping();
+Schedule::command('app:send-cart-reminders')->everyFiveMinutes()->withoutOverlapping();

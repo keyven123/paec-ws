@@ -39,6 +39,8 @@ class Transaction extends Model
         'payment_gateway_uuid',
         'paybiz_wallet_id',
         'payment_id', // New field - generic payment ID from any provider
+        'payment_group_uuid', // Orders of one cart share a single gateway payment
+        'cart_item_uuid',
         'payment_data', // New field - JSON field to store raw payment response
         'order_number',
         'qr_code',
@@ -230,6 +232,14 @@ class Transaction extends Model
                     $orderQuery->whereDate('valid_until', '<=', $filters['visit_end_date']);
                 }
             });
+        }
+
+        if (! empty($filters['purchase_start_date'])) {
+            $query->whereDate('created_at', '>=', $filters['purchase_start_date']);
+        }
+
+        if (! empty($filters['purchase_end_date'])) {
+            $query->whereDate('created_at', '<=', $filters['purchase_end_date']);
         }
 
         return $query;

@@ -13,6 +13,7 @@ use App\Services\ActivityComplianceService;
 use App\Services\AffiliateAttributionService;
 use App\Services\EventLocationService;
 use App\Services\Checkout\CheckoutHandlerRegistry;
+use App\Http\Requests\Customer\CartCheckoutRequest;
 use App\Http\Requests\Customer\CheckoutTempTransactionRequest;
 use App\Http\Requests\Customer\CheckoutFreeTempTransactionRequest;
 use App\Http\Requests\Customer\CheckoutPaypalCardRequest;
@@ -26,8 +27,13 @@ use App\Http\Requests\Customer\UpdateTempTransactionRequest;
 use App\Http\Resources\TempTransactionResource;
 use App\Jobs\SuccessPaymentProcess;
 use App\Models\AdminUser;
+use App\Models\Cart;
+use App\Models\CartItem;
+use App\Models\Event;
+use App\Models\EventLocation;
 use App\Models\EventTicket;
 use App\Models\PaymentGateway;
+use App\Models\PromoCode;
 use App\Models\TempTransaction;
 use App\Models\Transaction;
 use App\Notifications\PaymentCancelledNotification;
@@ -166,6 +172,19 @@ class TempTransactionController extends Controller
 
     private function createTempTransactionFor(array $payload, User $user): JsonResponse
     {
+        $tempTransaction = $this->buildTempTransaction($payload, $user);
+
+        return response()->json(
+            $this->tempTransactionCheckoutPayload($tempTransaction->load(['tempTransactionOrders', 'event'])),
+            201,
+        );
+    }
+
+    /**
+     * Prices the tickets server-side and holds them in a new temp transaction.
+     */
+    private function buildTempTransaction(array $payload, User $user): TempTransaction
+    {
         // Validate ticket availability before proceeding
         $this->validateTicketAvailability($payload['tickets'], null);
 
@@ -175,8 +194,11 @@ class TempTransactionController extends Controller
             $payload['event_location_uuid'] ?? null,
         );
 
-        DB::beginTransaction();
+        return DB::transaction(fn () => $this->storeTempTransaction($payload, $user, $event, $eventLocation));
+    }
 
+    private function storeTempTransaction(array $payload, User $user, Event $event, EventLocation $eventLocation): TempTransaction
+    {
         $promoCodeDiscount = 0;
         $promoCode = null;
         if (isset($payload['promo_code_uuid']) && $payload['promo_code_uuid']) {
@@ -225,16 +247,9 @@ class TempTransactionController extends Controller
                 $tempTransaction->uuid
             );
 
-        $tempTransaction = $this->tempTransactionRepository->syncPricingTotals(
+        return $this->tempTransactionRepository->syncPricingTotals(
             $tempTransaction,
             $promoCodeDiscount,
-        );
-
-        DB::commit();
-
-        return response()->json(
-            $this->tempTransactionCheckoutPayload($tempTransaction->load(['tempTransactionOrders', 'event'])),
-            201,
         );
     }
 
@@ -387,6 +402,296 @@ class TempTransactionController extends Controller
         $tempTransaction = $this->tempTransactionRepository->fetchOrThrow('uuid', $payload['temp_transaction_uuid']);
 
         return $this->startCheckout($tempTransaction, $payload);
+    }
+
+    /**
+     * Pays the signed-in customer's whole cart with one gateway payment. Each activity becomes its
+     * own order (tickets, confirmation email), and the orders share a payment group.
+     */
+    public function checkoutCart(CartCheckoutRequest $request): JsonResponse
+    {
+        $payload = $request->validated();
+        $user = $request->user();
+        $cart = Cart::query()->where('user_uuid', $user->uuid)->first();
+        $items = $cart?->items()->with('event')->get() ?? collect();
+
+        if ($items->isEmpty()) {
+            throw ValidationException::withMessages(['cart' => ['Your cart is empty.']]);
+        }
+
+        $this->assertCartItemsBookable($items);
+        $this->dropUnavailableCartPromoCodes($cart, $items);
+
+        DB::beginTransaction();
+
+        try {
+            $tempTransactions = $items->map(fn (CartItem $item) => $this->buildTempTransaction([
+                'event_uuid' => $item->event_uuid,
+                'event_location_uuid' => $item->event_location_uuid,
+                'promo_code_uuid' => $item->promo_code_uuid,
+                'tickets' => array_map(fn (array $ticket) => [
+                    'event_ticket_uuid' => $ticket['event_ticket_uuid'],
+                    'quantity' => (int) $ticket['quantity'],
+                    'valid_until' => $item->visit_date->toDateString(),
+                ], $item->tickets),
+            ], $user));
+
+            $total = round($tempTransactions->sum(fn (TempTransaction $temp) => (float) $temp->total_amount), 2);
+            $gateway = $total > 0 ? $this->resolveCartGateway($tempTransactions, $payload) : null;
+            $provider = $gateway?->provider ?? 'free';
+            $groupUuid = (string) Str::uuid();
+
+            $results = $tempTransactions->values()->map(function (TempTransaction $temp, int $index) use ($items, $provider, $groupUuid) {
+                $result = $this->tempTransactionRepository->checkout($temp, ['payment_provider' => $provider]);
+                $result['transaction']->update([
+                    'payment_group_uuid' => $groupUuid,
+                    'cart_item_uuid' => $items[$index]->uuid,
+                ]);
+                $temp->tempTransactionOrders()->delete();
+                $temp->delete();
+
+                return $result;
+            });
+            $lead = $results->first()['transaction'];
+
+            if (! $gateway) {
+                $orders = $results->map(function (array $result) {
+                    $result['transaction']->update([
+                        'payment_status' => Transaction::PAYMENT_STATUS['PAID'],
+                        'order_status' => Transaction::ORDER_STATUS['CONFIRMED'],
+                        'paid_at' => now(),
+                    ]);
+                    SuccessPaymentProcess::dispatchSync($result['transaction']->uuid);
+
+                    return $result['transaction']->fresh();
+                });
+                CartItem::query()->whereIn('uuid', $items->pluck('uuid'))->delete();
+
+                DB::commit();
+
+                return response()->json([
+                    'success' => true,
+                    'transaction' => $lead->fresh(),
+                    'orders' => $this->groupOrdersPayload($orders),
+                    'payment' => ['provider' => 'free', 'status' => 'paid'],
+                ], 201);
+            }
+
+            $paymentResult = PaymentServiceFactory::forGateway($gateway)
+                ->createPayment($this->cartPaymentData($gateway, $results, $total, $payload, $groupUuid));
+
+            if (! $paymentResult['success']) {
+                if ($paymentResult['channel_unavailable'] ?? false) {
+                    throw ValidationException::withMessages([
+                        'payment_channel' => [self::PAYNAMICS_CHANNEL_UNAVAILABLE],
+                    ]);
+                }
+                throw new \Exception('Payment creation failed: ' . $paymentResult['error']);
+            }
+
+            $isPaynamics = $gateway->provider === GeneralConstants::PAYMENT_GATEWAY_PROVIDERS['PAYNAMICS'];
+            Transaction::query()->where('payment_group_uuid', $groupUuid)->update([
+                'payment_gateway_uuid' => $gateway->uuid,
+                'paybiz_wallet_id' => $isPaynamics ? $gateway->paybiz_wallet_id : null,
+                'payment_id' => $paymentResult['payment_id'],
+                'payment_status' => Transaction::PAYMENT_STATUS['PENDING'],
+                'payment_data' => json_encode($paymentResult['raw_response'] ?? []),
+            ]);
+
+            DB::commit();
+
+            $redirectUrl = $paymentResult['checkout_url'] ?? $paymentResult['approval_url'] ?? null;
+
+            return response()->json([
+                'success' => true,
+                'transaction' => $lead->fresh(),
+                'orders' => $this->groupOrdersPayload($results->map(fn (array $result) => $result['transaction']->fresh()), withTickets: false),
+                'payment' => [
+                    'provider' => $gateway->provider,
+                    'payment_id' => $paymentResult['payment_id'],
+                    'status' => $paymentResult['status'] ?? 'pending',
+                    'checkout_url' => $redirectUrl,
+                ],
+                'redirect_url' => $redirectUrl,
+            ], 201);
+        } catch (ValidationException $e) {
+            DB::rollBack();
+            throw $e;
+        } catch (\Exception $e) {
+            DB::rollBack();
+            Log::error('Cart checkout failed', [
+                'user_uuid' => $user->uuid,
+                'error' => $e->getMessage(),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Checkout failed. Please try again.',
+                'error' => $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * @param \Illuminate\Support\Collection<int, CartItem> $items
+     */
+    private function assertCartItemsBookable($items): void
+    {
+        foreach ($items as $item) {
+            $event = $item->event;
+            if (! $event || $event->status !== GeneralConstants::EVENT_STATUSES['PUBLISHED']) {
+                $name = $item->details['attractionName'] ?? 'An activity';
+                throw ValidationException::withMessages([
+                    'cart' => ["{$name} is no longer available. Please remove it from your cart."],
+                ]);
+            }
+
+            if (! $event->isVisitDateBookable($item->visit_date->toDateString())) {
+                throw ValidationException::withMessages([
+                    'cart' => ["The date of visit for {$event->event_name} is no longer available. Please remove it and book it again with a new date."],
+                ]);
+            }
+        }
+    }
+
+    /**
+     * A promo code that ran out since it was applied is removed so the customer can review the new total.
+     *
+     * @param \Illuminate\Support\Collection<int, CartItem> $items
+     */
+    private function dropUnavailableCartPromoCodes(Cart $cart, $items): void
+    {
+        $dropped = [];
+        foreach ($items as $item) {
+            if (! $item->promo_code_uuid) {
+                continue;
+            }
+
+            $promoCode = PromoCode::query()
+                ->where('uuid', $item->promo_code_uuid)
+                ->where('status', GeneralConstants::GENERAL_STATUSES['ACTIVE'])
+                ->first();
+            if ($promoCode && ! ($promoCode->max_use && $promoCode->used_count >= $promoCode->max_use)) {
+                continue;
+            }
+
+            $item->update([
+                'promo_code_uuid' => null,
+                'details' => array_merge($item->details ?? [], ['appliedPromoCode' => null, 'promoDiscount' => 0]),
+            ]);
+            $dropped[] = $item->event->event_name;
+        }
+
+        if ($dropped !== []) {
+            $cart->touchChanged();
+            throw ValidationException::withMessages([
+                'cart' => ['The promo code for ' . implode(', ', $dropped) . ' is no longer available and was removed. Please review your total.'],
+            ]);
+        }
+    }
+
+    /**
+     * The gateway must be set up and active for every activity in the cart.
+     *
+     * @param \Illuminate\Support\Collection<int, TempTransaction> $tempTransactions
+     */
+    private function resolveCartGateway($tempTransactions, array $payload): PaymentGateway
+    {
+        $gatewayUuid = $payload['payment_gateway_uuid'] ?? null;
+        if (! $gatewayUuid) {
+            throw ValidationException::withMessages([
+                'payment_gateway_uuid' => ['Please select a payment method.'],
+            ]);
+        }
+
+        $gateway = null;
+        foreach ($tempTransactions as $tempTransaction) {
+            $gateway = $tempTransaction->event->paymentGateways()
+                ->where('payment_gateways.uuid', $gatewayUuid)
+                ->where('status', GeneralConstants::GENERAL_STATUSES['ACTIVE'])
+                ->first();
+
+            if (! $gateway) {
+                throw ValidationException::withMessages([
+                    'payment_gateway_uuid' => ["This payment method is not available for {$tempTransaction->event->event_name}."],
+                ]);
+            }
+        }
+
+        if ($gateway->provider === GeneralConstants::PAYMENT_GATEWAY_PROVIDERS['PAYNAMICS']) {
+            $channel = $payload['payment_channel'] ?? null;
+            if (! $channel) {
+                throw ValidationException::withMessages([
+                    'payment_channel' => ['Choose how you want to pay with Paynamics.'],
+                ]);
+            }
+            if (! in_array($channel, $gateway->enabledPaynamicsChannels(), true)) {
+                throw ValidationException::withMessages([
+                    'payment_channel' => [self::PAYNAMICS_CHANNEL_UNAVAILABLE],
+                ]);
+            }
+        }
+
+        return $gateway;
+    }
+
+    /**
+     * @param \Illuminate\Support\Collection<int, array<string, mixed>> $results
+     * @return array<string, mixed>
+     */
+    private function cartPaymentData(PaymentGateway $gateway, $results, float $total, array $payload, string $groupUuid): array
+    {
+        $lead = $results->first()['transaction'];
+        $activityNames = $results->map(fn (array $result) => $result['event']->event_name)->unique()->implode(', ');
+        $frontend = config('app.frontend_url');
+
+        $paymentData = [
+            'amount' => $total,
+            'currency' => 'PHP',
+            'description' => "Ticket purchase for {$activityNames}",
+            'reference_id' => $lead->payment_order_id,
+            'metadata' => [
+                'temp_transaction_uuid' => $lead->uuid,
+                'payment_group_uuid' => $groupUuid,
+                'user_uuid' => $lead->user_uuid,
+            ],
+            'return_url' => $frontend . '/payment/success/' . $lead->uuid,
+            'cancel_url' => $frontend . '/payment/cancel/' . $lead->uuid,
+        ];
+
+        if ($gateway->provider === GeneralConstants::PAYMENT_GATEWAY_PROVIDERS['PAYMONGO']) {
+            $results->first()['event']->loadMissing('organization');
+            $paymentData['payment_methods'] = OrganizationPaymentMethods::checkoutPaymongoApiTypes(
+                $results->first()['event']->organization?->payment_methods,
+            ) ?: OrganizationPaymentMethods::defaultPaymongoCheckoutApiTypes();
+            $paymentData['statement_descriptor'] = 'TICKET';
+        } elseif ($gateway->provider === GeneralConstants::PAYMENT_GATEWAY_PROVIDERS['PAYPAL']) {
+            $paymentData['brand_name'] = config('app.name');
+        } else {
+            $paymentData['payment_channel'] = $payload['payment_channel'];
+            $paymentData['notification_url'] = url('/api/v1/payments/paynamics/notification');
+            $paymentData['customer'] = $lead->user->only([
+                'first_name', 'middle_name', 'last_name', 'email', 'phone_number',
+                'address_line_1', 'address_line_2', 'city', 'region', 'postal_code', 'country',
+            ]);
+        }
+
+        return $paymentData;
+    }
+
+    /**
+     * @param \Illuminate\Support\Collection<int, Transaction> $transactions
+     * @return array<int, array<string, mixed>>
+     */
+    private function groupOrdersPayload($transactions, bool $withTickets = true): array
+    {
+        return $transactions->map(fn (Transaction $transaction) => [
+            'cart_item_uuid' => $transaction->cart_item_uuid,
+            'transaction' => $transaction,
+            'tickets' => $withTickets
+                ? $transaction->tickets()->with('eventTicket:uuid,name,price')->get()
+                : [],
+        ])->values()->all();
     }
 
     /**
@@ -1029,19 +1334,20 @@ class TempTransactionController extends Controller
             }
 
             if ($resolution === PaymentStatusResolver::RESOLUTION_FAILED) {
-                $transaction->update([
-                    'status' => Transaction::STATUS['CANCELLED'],
-                    'payment_status' => Transaction::PAYMENT_STATUS['FAILED'],
-                    'payment_data' => array_merge($transaction->payment_data ?? [], $paymentStatus['raw_response'] ?? []),
-                    'order_status' => Transaction::ORDER_STATUS['CANCELLED'],
-                    'paid_at' => null,
-                ]);
+                foreach ($this->openPaymentGroup($transaction) as $order) {
+                    $order->update([
+                        'status' => Transaction::STATUS['CANCELLED'],
+                        'payment_status' => Transaction::PAYMENT_STATUS['FAILED'],
+                        'payment_data' => array_merge($order->payment_data ?? [], $paymentStatus['raw_response'] ?? []),
+                        'order_status' => Transaction::ORDER_STATUS['CANCELLED'],
+                        'paid_at' => null,
+                    ]);
 
-                $tickets = $transaction->tickets;
-                foreach ($tickets as $ticket) {
-                    $ticket->delete();
+                    foreach ($order->tickets as $ticket) {
+                        $ticket->delete();
+                    }
+                    $this->notifyOrderCancelled($order);
                 }
-                $this->notifyOrderCancelled($transaction);
 
                 return response()->json([
                     'success' => false,
@@ -1055,25 +1361,28 @@ class TempTransactionController extends Controller
                 ], 200);
             }
 
-            $transaction->update([
-                'status' => Transaction::STATUS['ACTIVE'],
-                'payment_status' => Transaction::PAYMENT_STATUS['PAID'],
-                'payment_data' => array_merge($transaction->payment_data ?? [], $paymentStatus['raw_response'] ?? []),
-                'order_status' => Transaction::ORDER_STATUS['CONFIRMED'],
-                'paid_at' => now(),
-            ]);
+            foreach ($this->openPaymentGroup($transaction) as $order) {
+                $order->update([
+                    'status' => Transaction::STATUS['ACTIVE'],
+                    'payment_status' => Transaction::PAYMENT_STATUS['PAID'],
+                    'payment_data' => array_merge($order->payment_data ?? [], $paymentStatus['raw_response'] ?? []),
+                    'order_status' => Transaction::ORDER_STATUS['CONFIRMED'],
+                    'paid_at' => now(),
+                ]);
 
-            $paidTransaction = $transaction->fresh();
+                $paidTransaction = $order->fresh();
 
-            // Fulfil synchronously so the confirmation page can show the issued QR codes.
-            $handler = $this->checkoutHandlerRegistry->resolveFor($paidTransaction);
-            if ($handler) {
-                $handler->handlePaid($paidTransaction, syncFulfillment: true);
-            } else {
-                SuccessPaymentProcess::dispatchSync($paidTransaction->uuid);
+                // Fulfil synchronously so the confirmation page can show the issued QR codes.
+                $handler = $this->checkoutHandlerRegistry->resolveFor($paidTransaction);
+                if ($handler) {
+                    $handler->handlePaid($paidTransaction, syncFulfillment: true);
+                } else {
+                    SuccessPaymentProcess::dispatchSync($paidTransaction->uuid);
+                }
             }
+            $this->removePaidCartItems($transaction);
 
-            return $this->paidTransactionResponse($paidTransaction, 'Payment completed successfully', $gatewayStatus);
+            return $this->paidTransactionResponse($transaction, 'Payment completed successfully', $gatewayStatus);
         } catch (\Exception $e) {
             Log::error('Payment completion failed', [
                 'transaction_uuid' => $transaction->uuid,
@@ -1090,8 +1399,7 @@ class TempTransactionController extends Controller
     private function paidTransactionResponse(Transaction $transaction, string $message, ?string $gatewayStatus = null): JsonResponse
     {
         $transaction = $transaction->fresh();
-
-        return response()->json([
+        $response = [
             'success' => true,
             'payment_status' => $gatewayStatus ?? $transaction->payment_status,
             'transaction' => $transaction->load([
@@ -1103,7 +1411,55 @@ class TempTransactionController extends Controller
                 ->with('eventTicket:uuid,name,price')
                 ->get(),
             'message' => $message,
-        ]);
+        ];
+
+        if ($transaction->payment_group_uuid) {
+            $response['orders'] = $this->groupOrdersPayload(
+                Transaction::query()
+                    ->where('payment_group_uuid', $transaction->payment_group_uuid)
+                    ->orderBy('created_at')
+                    ->orderBy('order_number')
+                    ->get(),
+            );
+        }
+
+        return response()->json($response);
+    }
+
+    /**
+     * The orders still awaiting the payment this transaction belongs to: the whole cart for a
+     * cart checkout, otherwise just this order.
+     *
+     * @return \Illuminate\Support\Collection<int, Transaction>
+     */
+    private function openPaymentGroup(Transaction $transaction)
+    {
+        if (! $transaction->payment_group_uuid) {
+            return collect([$transaction]);
+        }
+
+        return Transaction::query()
+            ->where('payment_group_uuid', $transaction->payment_group_uuid)
+            ->whereNotIn('payment_status', [
+                Transaction::PAYMENT_STATUS['PAID'],
+                Transaction::PAYMENT_STATUS['CANCELLED'],
+                Transaction::PAYMENT_STATUS['FAILED'],
+            ])
+            ->get();
+    }
+
+    private function removePaidCartItems(Transaction $transaction): void
+    {
+        if (! $transaction->payment_group_uuid) {
+            return;
+        }
+
+        $cartItemUuids = Transaction::query()
+            ->where('payment_group_uuid', $transaction->payment_group_uuid)
+            ->whereNotNull('cart_item_uuid')
+            ->pluck('cart_item_uuid');
+
+        CartItem::query()->whereIn('uuid', $cartItemUuids)->delete();
     }
 
     public function cancelPayment(string $transactionUuid): JsonResponse
@@ -1137,29 +1493,33 @@ class TempTransactionController extends Controller
             return $this->reconcileGatewayPayment($transaction);
         }
 
-        $transaction->update([
-            'status' => Transaction::STATUS['CANCELLED'],
-            'payment_status' => Transaction::PAYMENT_STATUS['CANCELLED'],
-            'order_status' => Transaction::ORDER_STATUS['CANCELLED'],
-        ]);
+        foreach ($this->openPaymentGroup($transaction) as $order) {
+            $order->update([
+                'status' => Transaction::STATUS['CANCELLED'],
+                'payment_status' => Transaction::PAYMENT_STATUS['CANCELLED'],
+                'order_status' => Transaction::ORDER_STATUS['CANCELLED'],
+            ]);
 
-        $freshTransaction = $transaction->fresh()->load([
-            'event',
-            'transactionOrders.eventTicket',
-            'user',
-        ]);
-        $this->trackMetaPixelCancellation($freshTransaction);
+            $cancelledOrder = $order->fresh()->load([
+                'event',
+                'transactionOrders.eventTicket',
+                'user',
+            ]);
+            $this->trackMetaPixelCancellation($cancelledOrder);
 
-        $tickets = $transaction->tickets;
-
-        foreach ($tickets as $ticket) {
-            $ticket->delete();
+            foreach ($order->tickets as $ticket) {
+                $ticket->delete();
+            }
+            $this->notifyOrderCancelled($cancelledOrder);
         }
-        $this->notifyOrderCancelled($freshTransaction);
 
         return response()->json([
             'success' => true,
-            'transaction' => $freshTransaction,
+            'transaction' => $transaction->fresh()->load([
+                'event',
+                'transactionOrders.eventTicket',
+                'user',
+            ]),
             'message' => 'Payment cancelled successfully'
         ]);
     }

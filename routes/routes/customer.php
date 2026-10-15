@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Customer\AffiliatePartnerController;
+use App\Http\Controllers\Customer\CartController;
 use App\Http\Controllers\Customer\ChatController;
 use App\Http\Controllers\Customer\CouponController;
 use App\Http\Controllers\Customer\NotificationController;
@@ -63,6 +64,14 @@ Route::group(['prefix' => 'customer'], function () {
         Route::post('checkout-paypal-card', [TempTransactionController::class, 'checkoutPaypalCard']);
         Route::put('/{uuid}', [TempTransactionController::class, 'updateTempTransaction']);
         Route::delete('/{uuid}', [TempTransactionController::class, 'destroyTempTransaction']);
+    });
+
+    Route::group(['prefix' => 'cart'], function () {
+        Route::get('/', [CartController::class, 'show']);
+        Route::post('items', [CartController::class, 'storeItem']);
+        Route::put('items/{uuid}', [CartController::class, 'updateItem'])->whereUuid('uuid');
+        Route::delete('items/{uuid}', [CartController::class, 'destroyItem'])->whereUuid('uuid');
+        Route::post('checkout', [TempTransactionController::class, 'checkoutCart']);
     });
 
     Route::post('transactions/{transactionUuid}/complete', [TempTransactionController::class, 'completePayment']);

@@ -11,6 +11,7 @@ use App\Models\Ticket;
 use App\Models\Transaction;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Str;
 use PHPUnit\Framework\Attributes\Test;
 use Tests\TestCase;
 
@@ -163,6 +164,54 @@ class GuestCheckoutTest extends TestCase
         $this->assertSame($existing->uuid, $temp['user_uuid']);
         $this->assertSame('Existing', $existing->fresh()->first_name);
         $this->assertNull($existing->fresh()->provider);
+    }
+
+    #[Test]
+    public function aReturningGuestsTicketsUseTheDetailsFromTheLatestCheckout(): void
+    {
+        $this->postJson('/api/v1/public/temp-transactions/guest', $this->cartPayload([
+            'first_name' => 'Juan',
+            'last_name' => 'Dela Cruz',
+        ]))->assertStatus(201);
+
+        $temp = $this->postJson('/api/v1/public/temp-transactions/guest', $this->cartPayload([
+            'first_name' => 'Maria',
+            'last_name' => 'Santos',
+            'address' => '45 New Address Ave',
+            'phone_number' => '09179876543',
+        ]))->assertStatus(201)->json();
+
+        $this->assertSame(1, User::where('email', 'guest.buyer@example.com')->count());
+        $guest = User::where('email', 'guest.buyer@example.com')->firstOrFail();
+        $this->assertSame(
+            ['Maria', 'Santos', '45 New Address Ave', '+639179876543'],
+            [$guest->first_name, $guest->last_name, $guest->address_line_1, $guest->phone_number],
+        );
+
+        $this->postJson('/api/v1/public/temp-transactions/guest/place-order', [
+            'temp_transaction_uuid' => $temp['uuid'],
+            'email' => 'guest.buyer@example.com',
+        ])->assertStatus(201);
+
+        $names = Ticket::pluck('attendee_name')->map(fn ($name) => Str::squish($name))->unique()->values()->all();
+        $this->assertSame(['Maria Santos'], $names);
+    }
+
+    #[Test]
+    public function aReturningGuestKeepsTheirNumberWhenTheNewOneBelongsToSomeoneElse(): void
+    {
+        User::factory()->create([
+            'role_uuid' => Role::firstOrFail()->uuid,
+            'email' => 'member@example.com',
+            'phone_number' => '+639179876543',
+        ]);
+        $this->postJson('/api/v1/public/temp-transactions/guest', $this->cartPayload())->assertStatus(201);
+
+        $this->postJson('/api/v1/public/temp-transactions/guest', $this->cartPayload([
+            'phone_number' => '09179876543',
+        ]))->assertStatus(201);
+
+        $this->assertSame('+639121231234', User::where('email', 'guest.buyer@example.com')->value('phone_number'));
     }
 
     #[Test]

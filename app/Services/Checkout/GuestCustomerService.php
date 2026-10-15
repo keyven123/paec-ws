@@ -11,7 +11,8 @@ class GuestCustomerService
 {
     /**
      * Find the customer for a guest checkout by email, creating a guest customer when none exists.
-     * Existing accounts are reused as-is so their profile is never overwritten by guest input.
+     * A returning guest takes the details from their latest checkout, since tickets and emails are
+     * issued in that name. Registered accounts are reused as-is so their profile is never overwritten.
      *
      * @param  array{first_name: string, last_name: string, address: string, email: string, phone_number: string}  $details
      */
@@ -20,19 +21,29 @@ class GuestCustomerService
         $email = Str::lower(trim($details['email']));
 
         $existing = User::query()->where('email', $email)->first();
-        if ($existing) {
+        if ($existing && $existing->provider !== User::GUEST_PROVIDER) {
             return $existing;
         }
 
-        $phoneTaken = User::query()->where('phone_number', $details['phone_number'])->exists();
+        $phoneTaken = User::query()
+            ->where('phone_number', $details['phone_number'])
+            ->when($existing, fn ($query) => $query->where('uuid', '!=', $existing->uuid))
+            ->exists();
 
-        return self::createGuest([
+        $attributes = [
             'first_name' => trim($details['first_name']),
             'last_name' => trim($details['last_name']),
             'address_line_1' => trim($details['address']),
-            'email' => $email,
-            'phone_number' => $phoneTaken ? null : $details['phone_number'],
-        ]);
+            'phone_number' => $phoneTaken ? $existing?->phone_number : $details['phone_number'],
+        ];
+
+        if ($existing) {
+            $existing->update($attributes);
+
+            return $existing;
+        }
+
+        return self::createGuest([...$attributes, 'email' => $email]);
     }
 
     /**

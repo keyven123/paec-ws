@@ -11,6 +11,12 @@ Route::group(['prefix' => 'transactions', 'middleware' => 'auth:admin'], functio
     Route::post('/', [TransactionController::class, 'store'])
         ->middleware('can:transactions-create');
 
+    Route::get('/export', [TransactionController::class, 'export'])
+        ->middleware('can:transactions-view');
+
+    Route::get('/export/attractions', [TransactionController::class, 'exportAttractions'])
+        ->middleware('can:transactions-view');
+
     Route::group(['prefix' => '{uuid}'], function () {
         Route::get('/', [TransactionController::class, 'show'])
             ->middleware('can:transactions-view');

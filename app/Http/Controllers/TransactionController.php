@@ -4,14 +4,19 @@ namespace App\Http\Controllers;
 
 use App\Http\Repositories\TransactionRepository;
 use App\Http\Requests\Transaction\CreateTransactionRequest;
+use App\Http\Requests\Transaction\ExportTransactionReportRequest;
 use App\Http\Requests\Transaction\UpdateTransactionRequest;
 use App\Http\Requests\Transaction\ListTransactionRequest;
 use App\Http\Requests\Transaction\SendTransactionTicketsRequest;
 use App\Http\Resources\TransactionResource;
 use App\Exceptions\NoTransactionFoundException;
 use App\Exceptions\UnauthorizedException;
+use App\Models\Event;
+use App\Models\Transaction;
+use App\Services\TransactionReportService;
 use App\Services\TransactionTicketDeliveryService;
 use Illuminate\Http\Response;
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Str;
 
@@ -39,6 +44,35 @@ class TransactionController extends Controller
         $list = $this->transactionRepository->getAll($filters);
 
         return TransactionResource::collection($list->paginate($perPage))->response();
+    }
+
+    /**
+     * Attractions that have transactions the admin can see, for the export filter.
+     */
+    public function exportAttractions(): JsonResponse
+    {
+        $events = Event::query()
+            ->whereIn('uuid', Transaction::query()->byOrganization()->whereNotNull('event_uuid')->select('event_uuid'))
+            ->orderBy('event_name')
+            ->get(['uuid', 'event_name']);
+
+        return response()->json([
+            'data' => $events->map(fn (Event $event) => ['uuid' => $event->uuid, 'name' => $event->event_name])->values(),
+        ]);
+    }
+
+    /**
+     * Download the transactions matching the filters as an Excel workbook.
+     */
+    public function export(ExportTransactionReportRequest $request, TransactionReportService $reportService): BinaryFileResponse
+    {
+        $report = $reportService->export($request->validated());
+
+        return response()->download($report['path'], $report['file_name'], [
+            'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'Access-Control-Expose-Headers' => 'Content-Disposition, Content-Type',
+            'Cache-Control' => 'no-cache, private',
+        ])->deleteFileAfterSend();
     }
 
     /**
