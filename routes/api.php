@@ -87,8 +87,6 @@ Route::prefix('v1')->group(function () {
         Route::post('organizations/register', [OrganizationController::class, 'register']);
         Route::get('organizations/onboarding', [OrganizationController::class, 'onboarding'])->name('organizer.onboarding');
         Route::post('admin/login', [AuthAdminController::class, 'login']);
-        // Outside auth:admin so expired tokens can still refresh within JWT_REFRESH_TTL
-        Route::post('admin/refresh', [AuthAdminController::class, 'refresh']);
 
         Route::group(['prefix' => 'public'], function () {
             Route::get('/categories', [CategoryController::class, 'publicCategories']);
