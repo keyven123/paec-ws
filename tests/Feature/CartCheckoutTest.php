@@ -148,6 +148,28 @@ class CartCheckoutTest extends TestCase
     }
 
     #[Test]
+    public function cart_rejects_visit_dates_after_ticket_available_to(): void
+    {
+        $this->arcadePass->update([
+            'available_from' => '2026-01-01 00:00:00',
+            'available_to' => '2026-12-31 20:35:00',
+        ]);
+
+        $this->actingAs($this->customer, 'api')
+            ->postJson(self::CART . '/items', $this->itemPayload($this->arcadePass, 1, [
+                'visit_date' => '2026-12-31',
+            ]))
+            ->assertCreated();
+
+        $this->actingAs($this->customer, 'api')
+            ->postJson(self::CART . '/items', $this->itemPayload($this->arcadePass, 1, [
+                'visit_date' => '2027-01-01',
+            ]))
+            ->assertStatus(422)
+            ->assertJsonValidationErrors(['tickets.0.event_ticket_uuid']);
+    }
+
+    #[Test]
     public function adding_an_activity_keeps_its_tickets_and_restarts_the_reminder_wait(): void
     {
         $this->addToCart($this->arcadePass);

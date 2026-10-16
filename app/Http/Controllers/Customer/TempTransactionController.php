@@ -546,10 +546,27 @@ class TempTransactionController extends Controller
                 ]);
             }
 
-            if (! $event->isVisitDateBookable($item->visit_date->toDateString())) {
+            $visitDate = $item->visit_date->toDateString();
+
+            if (! $event->isVisitDateBookable($visitDate)) {
                 throw ValidationException::withMessages([
                     'cart' => ["The date of visit for {$event->event_name} is no longer available. Please remove it and book it again with a new date."],
                 ]);
+            }
+
+            foreach ($item->tickets as $ticketLine) {
+                $ticketUuid = $ticketLine['event_ticket_uuid'] ?? null;
+                if (! $ticketUuid) {
+                    continue;
+                }
+
+                $eventTicket = EventTicket::query()->where('uuid', $ticketUuid)->first();
+                if ($eventTicket && ! $eventTicket->isAvailableForVisitDate($visitDate)) {
+                    $ticketName = $eventTicket->name ?: 'A ticket';
+                    throw ValidationException::withMessages([
+                        'cart' => ["{$ticketName} for {$event->event_name} is unavailable for the selected date of visit. Please remove it and book again."],
+                    ]);
+                }
             }
         }
     }

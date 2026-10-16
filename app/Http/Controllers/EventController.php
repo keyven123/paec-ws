@@ -31,6 +31,7 @@ use App\Models\AdminUser;
 use App\Models\Event;
 use App\Models\EventSection;
 use App\Models\Transaction;
+use App\Models\Upload;
 use Carbon\Carbon;
 use Illuminate\Http\Response;
 use Illuminate\Http\JsonResponse;
@@ -432,17 +433,28 @@ class EventController extends Controller
                     $showcaseUploads[] = $upload->uuid;
                 }
                 $newShowcaseUploads = $showcaseUploads;
-                $existingShowcase = $event->event_showcase;
-                if (is_string($existingShowcase)) {
-                    $existingShowcase = json_decode($existingShowcase, true) ?? [];
-                }
-                if (!is_array($existingShowcase)) {
-                    $existingShowcase = [];
-                }
-                $payload['event_showcase'] = array_values(
-                    array_merge($existingShowcase, $showcaseUploads)
-                );
             }
+
+            $syncShowcase = $request->boolean('sync_event_showcase');
+            if ($syncShowcase || !empty($newShowcaseUploads)) {
+                $currentShowcase = $this->normalizeEventShowcase($event->event_showcase);
+
+                if ($syncShowcase) {
+                    $keepUuids = array_values(array_unique(array_filter(
+                        $request->input('event_showcase_uuids', []),
+                        fn ($uuid) => is_string($uuid) && in_array($uuid, $currentShowcase, true)
+                    )));
+                    $removedUuids = array_values(array_diff($currentShowcase, $keepUuids));
+                    $this->detachRemovedShowcaseUploads($event, $removedUuids);
+                    $payload['event_showcase'] = array_values(array_merge($keepUuids, $newShowcaseUploads));
+                } else {
+                    $payload['event_showcase'] = array_values(
+                        array_merge($currentShowcase, $newShowcaseUploads)
+                    );
+                }
+            }
+
+            unset($payload['sync_event_showcase'], $payload['event_showcase_uuids']);
 
             $this->eventRepository->update($event, $payload);
             if (array_key_exists('payment_gateway_uuids', $payload)) {
@@ -1094,5 +1106,47 @@ class EventController extends Controller
             Carbon::parse($startDate)->startOfDay(),
             Carbon::parse($endDate)->endOfDay(),
         ];
+    }
+
+    /**
+     * @param  mixed  $showcase
+     * @return list<string>
+     */
+    private function normalizeEventShowcase(mixed $showcase): array
+    {
+        if (is_string($showcase)) {
+            $showcase = json_decode($showcase, true) ?? [];
+            if (is_string($showcase)) {
+                $showcase = json_decode($showcase, true) ?? [];
+            }
+        }
+
+        if (!is_array($showcase)) {
+            return [];
+        }
+
+        return array_values(array_filter($showcase, fn ($uuid) => is_string($uuid) && $uuid !== ''));
+    }
+
+    /**
+     * @param  list<string>  $removedUuids
+     */
+    private function detachRemovedShowcaseUploads(Event $event, array $removedUuids): void
+    {
+        if ($removedUuids === []) {
+            return;
+        }
+
+        Upload::query()
+            ->whereIn('uuid', $removedUuids)
+            ->where(function ($query) use ($event) {
+                $query->where('uploadable_uuid', $event->uuid)
+                    ->orWhereNull('uploadable_uuid');
+            })
+            ->update([
+                'uploadable_type' => null,
+                'uploadable_uuid' => null,
+                'collection' => null,
+            ]);
     }
 }

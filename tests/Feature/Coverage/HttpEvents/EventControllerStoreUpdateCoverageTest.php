@@ -301,6 +301,103 @@ class EventControllerStoreUpdateCoverageTest extends HttpEventsTestCase
     }
 
     #[Test]
+    public function updateCanRemoveExistingShowcaseImagesWhileKeepingOthers(): void
+    {
+        $keep = Upload::create([
+            'type' => 'image',
+            'mime_type' => 'image/png',
+            'extension' => 'png',
+            'disk' => UploadDisk::forUploads(),
+            'path' => 'uploads/keep.png',
+            'size_bytes' => 10,
+        ]);
+        $remove = Upload::create([
+            'type' => 'image',
+            'mime_type' => 'image/png',
+            'extension' => 'png',
+            'disk' => UploadDisk::forUploads(),
+            'path' => 'uploads/remove.png',
+            'size_bytes' => 10,
+            'uploadable_type' => Event::class,
+            'uploadable_uuid' => null,
+            'collection' => 'showcase',
+        ]);
+
+        $event = $this->existingDailyEvent([
+            'event_showcase' => [$keep->uuid, $remove->uuid],
+        ]);
+
+        $remove->update([
+            'uploadable_type' => Event::class,
+            'uploadable_uuid' => $event->uuid,
+            'collection' => 'showcase',
+        ]);
+        $keep->update([
+            'uploadable_type' => Event::class,
+            'uploadable_uuid' => $event->uuid,
+            'collection' => 'showcase',
+        ]);
+
+        $this->withHeaders($this->headers())
+            ->post('/api/v1/events/' . $event->uuid, $this->updatePayload([
+                'sync_event_showcase' => true,
+                'event_showcase_uuids' => [$keep->uuid],
+                'event_showcase' => [UploadedFile::fake()->image('new.png', 10, 10)],
+            ]))
+            ->assertOk();
+
+        $showcase = $event->fresh()->event_showcase;
+        $this->assertCount(2, $showcase);
+        $this->assertSame($keep->uuid, $showcase[0]);
+        $this->assertNotSame($remove->uuid, $showcase[1]);
+
+        $this->assertDatabaseHas('uploads', [
+            'uuid' => $remove->uuid,
+            'uploadable_uuid' => null,
+            'collection' => null,
+        ]);
+        $this->assertDatabaseHas('uploads', [
+            'uuid' => $keep->uuid,
+            'uploadable_uuid' => $event->uuid,
+            'collection' => 'showcase',
+        ]);
+    }
+
+    #[Test]
+    public function updateCanClearAllShowcaseImagesWhenSyncingEmptyList(): void
+    {
+        $upload = Upload::create([
+            'type' => 'image',
+            'mime_type' => 'image/png',
+            'extension' => 'png',
+            'disk' => UploadDisk::forUploads(),
+            'path' => 'uploads/clear-me.png',
+            'size_bytes' => 10,
+        ]);
+
+        $event = $this->existingDailyEvent(['event_showcase' => [$upload->uuid]]);
+        $upload->update([
+            'uploadable_type' => Event::class,
+            'uploadable_uuid' => $event->uuid,
+            'collection' => 'showcase',
+        ]);
+
+        $this->withHeaders($this->headers())
+            ->post('/api/v1/events/' . $event->uuid, $this->updatePayload([
+                'sync_event_showcase' => true,
+                'event_showcase_uuids' => [],
+            ]))
+            ->assertOk();
+
+        $this->assertSame([], $event->fresh()->event_showcase);
+        $this->assertDatabaseHas('uploads', [
+            'uuid' => $upload->uuid,
+            'uploadable_uuid' => null,
+            'collection' => null,
+        ]);
+    }
+
+    #[Test]
     public function updateReturns404WhenRepositoryCannotFindEvent(): void
     {
         $event = $this->existingDailyEvent();
