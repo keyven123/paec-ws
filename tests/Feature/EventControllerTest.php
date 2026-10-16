@@ -487,6 +487,49 @@ class EventControllerTest extends TestCase
     }
 
     #[\PHPUnit\Framework\Attributes\Test]
+    public function itReleasesTheSlugOfADeletedEventSoTheSameNameCanBeCreatedAgain()
+    {
+        $event = Event::create([
+            'event_name' => 'Lakbay Museo',
+            'slug' => 'lakbay-museo',
+            'event_description' => 'Museum tour',
+            'event_type' => Event::EVENT_TYPES['DAILY'],
+            'contact_email' => 'contact@event.com',
+            'city' => 'Manila',
+            'schedule_type' => Event::SCHEDULE_TYPES['DAILY'],
+            'event_config' => Event::EVENT_CONFIGS['OPEN_TICKET'],
+            'category_uuid' => $this->category->uuid,
+            'status' => GeneralConstants::EVENT_STATUSES['DRAFT'],
+        ]);
+
+        $this->withHeaders([
+            'Authorization' => 'Bearer ' . $this->adminToken,
+        ])->deleteJson('/api/v1/events/' . $event->uuid)
+            ->assertNoContent();
+
+        $event->refresh();
+        $this->assertNotNull($event->deleted_at);
+        $this->assertStringStartsWith('lakbay-museo--deleted-', $event->slug);
+
+        $this->withHeaders([
+            'Authorization' => 'Bearer ' . $this->adminToken,
+        ])->postJson('/api/v1/events', [
+            'event_name' => 'Lakbay Museo',
+            'event_description' => 'Museum tour',
+            'contact_email' => 'contact@event.com',
+            'city' => 'Manila',
+            'category_uuid' => $this->category->uuid,
+            'event_type' => Event::EVENT_TYPES['DAILY'],
+            'schedule_type' => Event::SCHEDULE_TYPES['DAILY'],
+            'event_config' => Event::EVENT_CONFIGS['OPEN_TICKET'],
+            'tags' => ['museum'],
+            'status' => GeneralConstants::EVENT_STATUSES['DRAFT'],
+        ])
+            ->assertCreated()
+            ->assertJsonPath('data.slug', 'lakbay-museo');
+    }
+
+    #[\PHPUnit\Framework\Attributes\Test]
     public function itCanDeleteEventWithRegistrationCountButNoTickets()
     {
         $event = Event::create([
