@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Constants\GeneralConstants;
+use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -155,6 +156,25 @@ class EventTicket extends Model
     public function scopeActive(Builder $query): Builder
     {
         return $query->where('status', GeneralConstants::GENERAL_STATUSES['ACTIVE']);
+    }
+
+    /**
+     * Whether this ticket can be booked for the given visit calendar day.
+     * Compares date portions of available_from / available_to (inclusive).
+     */
+    public function isAvailableForVisitDate(string $visitDate): bool
+    {
+        $date = Carbon::parse($visitDate)->toDateString();
+
+        if ($this->available_from && $date < $this->available_from->toDateString()) {
+            return false;
+        }
+
+        if ($this->available_to && $date > $this->available_to->toDateString()) {
+            return false;
+        }
+
+        return true;
     }
 
     // Relationships

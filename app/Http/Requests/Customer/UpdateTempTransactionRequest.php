@@ -122,6 +122,20 @@ class UpdateTempTransactionRequest extends FormRequest
                         "Today's visit date is no longer available. Please choose another date.",
                     );
                 }
+
+                $eventTicketUuid = $ticket['event_ticket_uuid'] ?? null;
+                if (!$eventTicketUuid) {
+                    continue;
+                }
+
+                $eventTicket = EventTicket::find($eventTicketUuid);
+                if ($eventTicket && !$eventTicket->isAvailableForVisitDate($visitDate)) {
+                    $name = $eventTicket->name ?: 'This ticket';
+                    $validator->errors()->add(
+                        "tickets.{$index}.valid_until",
+                        "{$name} is unavailable for the selected date of visit.",
+                    );
+                }
             }
         });
     }

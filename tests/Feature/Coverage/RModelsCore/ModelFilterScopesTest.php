@@ -160,6 +160,10 @@ class ModelFilterScopesTest extends TestCase
         $this->assertSameModels([$target], EventTicket::filters(['available_to' => '2026-08-01'])->get());
         $this->assertSameModels([$target], EventTicket::filters(['min_price' => 1000])->get());
         $this->assertSameModels([$other], EventTicket::filters(['max_price' => 1000])->get());
+
+        $this->assertTrue($target->isAvailableForVisitDate('2026-07-31'));
+        $this->assertFalse($target->isAvailableForVisitDate('2026-08-01'));
+        $this->assertFalse($target->isAvailableForVisitDate('2026-06-30'));
     }
 
     #[Test]

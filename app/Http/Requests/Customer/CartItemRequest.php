@@ -73,6 +73,34 @@ class CartItemRequest extends FormRequest
 
             if (! $event->isVisitDateBookable($this->input('visit_date'))) {
                 $validator->errors()->add('visit_date', "Today's visit date is no longer available. Please choose another date.");
+
+                return;
+            }
+
+            $visitDate = $this->input('visit_date');
+            $tickets = $this->input('tickets', []);
+            if (! is_array($tickets)) {
+                return;
+            }
+
+            foreach ($tickets as $index => $ticket) {
+                $ticketUuid = $ticket['event_ticket_uuid'] ?? null;
+                if (! $ticketUuid) {
+                    continue;
+                }
+
+                $eventTicket = EventTicket::query()->where('uuid', $ticketUuid)->first();
+                if (! $eventTicket) {
+                    continue;
+                }
+
+                if (! $eventTicket->isAvailableForVisitDate($visitDate)) {
+                    $name = $eventTicket->name ?: 'This ticket';
+                    $validator->errors()->add(
+                        "tickets.{$index}.event_ticket_uuid",
+                        "{$name} is unavailable for the selected date of visit.",
+                    );
+                }
             }
         });
     }
