@@ -71,7 +71,7 @@ class UpdateEventRequest extends FormRequest
             'city' => ['required', 'string', 'max:255'],
             'portrait_image' => ['nullable', 'file', 'image', 'max:10240', 'mimes:png,jpg,jpeg,jfif'],
             'featured_image' => ['nullable', 'file', 'image', 'max:10240', 'mimes:png,jpg,jpeg,jfif'],
-            'event_showcase' => ['nullable', 'array', 'max:6'],
+            'event_showcase' => ['nullable', 'array'],
             'event_showcase.*' => ['file', 'image', 'max:5120', 'mimes:png,jpg,jpeg,jfif'],
             'sync_event_showcase' => ['nullable', 'boolean'],
             'event_showcase_uuids' => ['nullable', 'array'],
@@ -152,7 +152,6 @@ class UpdateEventRequest extends FormRequest
     {
         return [
             'contact_email.email' => 'Please provide a valid email address.',
-            'event_showcase.max' => 'Event showcase can have a maximum of 6 images.',
             'event_showcase.*.max' => 'Showcase image must be less than 5MB.',
             'event_showcase.*.mimes' => 'Showcase image must be a valid image (PNG, JPG, JPEG).',
             'portrait_image.max' => 'Portrait image must be less than 10MB.',
