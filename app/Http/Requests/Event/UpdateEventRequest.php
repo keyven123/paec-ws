@@ -9,7 +9,6 @@ use App\Models\Event;
 use App\Models\EventSection;
 use App\Services\PaecOrganizationService;
 use Illuminate\Foundation\Http\FormRequest;
-use Illuminate\Support\Facades\Auth;
 use Illuminate\Validation\Rule;
 
 class UpdateEventRequest extends FormRequest
@@ -23,7 +22,6 @@ class UpdateEventRequest extends FormRequest
      */
     public function rules(): array
     {
-        $superAdmin = Auth::user('admin');
         return [
             'uuid' => [
                 'required',
@@ -38,13 +36,12 @@ class UpdateEventRequest extends FormRequest
                 Rule::requiredIf(function () {
                     return $this->input('event_type') != Event::EVENT_TYPES['DAILY'];
                 })],
+            // Optional on update — prepareForValidation fills it from the event / default org
+            // when omitted. Requiring it blocked Meta Pixel saves for super-admins.
             'organization_uuid' => [
                 'nullable',
                 'uuid',
                 'exists:organizations,uuid',
-                Rule::requiredIf(function () use ($superAdmin) {
-                    return $superAdmin && $superAdmin->role && $superAdmin->role->is_admin == true;
-                })
             ],
             'category_uuid' => ['required', 'uuid', 'exists:categories,uuid'],
             'event_section_uuid' => [
