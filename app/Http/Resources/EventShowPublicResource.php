@@ -27,6 +27,7 @@ class EventShowPublicResource extends JsonResource
             'category_name' => $this->category->name,
             'event_description' => $this->event_description,
             'contact_email' => $this->contact_email,
+            'contact_number' => $this->contact_number,
             'address' => $this->address,
             'city' => $this->city,
             'logo_uuid' => $this->logo_uuid,
