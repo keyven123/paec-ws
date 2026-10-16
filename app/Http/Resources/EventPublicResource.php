@@ -40,6 +40,7 @@ class EventPublicResource extends JsonResource
             'event_name' => $this->event_name,
             'event_description' => $this->event_description,
             'contact_email' => $this->contact_email,
+            'contact_number' => $this->contact_number,
             'logo_uuid' => $this->logo_uuid,
             'portrait_image_uuid' => $this->portrait_image_uuid,
             'featured_image_uuid' => $this->featured_image_uuid,

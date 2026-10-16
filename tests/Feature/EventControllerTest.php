@@ -183,6 +183,7 @@ class EventControllerTest extends TestCase
             'event_name' => 'New Event',
             'event_description' => 'New event description',
             'contact_email' => 'contact@event.com',
+            'contact_number' => '+63 928 297 5671',
             'city' => 'Manila',
             'category_uuid' => $this->category->uuid,
             'event_type' => Event::EVENT_TYPES['DAILY'],
@@ -203,18 +204,21 @@ class EventControllerTest extends TestCase
                     'event_name',
                     'event_description',
                     'contact_email',
+                    'contact_number',
                     'event_type',
                     'schedule_type',
                     'event_config',
                     'tags',
                     'status',
                 ],
-            ]);
+            ])
+            ->assertJsonPath('data.contact_number', '+63 928 297 5671');
 
         $this->assertDatabaseHas('events', [
             'event_name' => 'New Event',
             'event_description' => 'New event description',
             'contact_email' => 'contact@event.com',
+            'contact_number' => '+63 928 297 5671',
         ]);
     }
 
@@ -340,6 +344,7 @@ class EventControllerTest extends TestCase
             'event_name' => 'Updated Event',
             'event_description' => 'Updated description',
             'contact_email' => 'updated@event.com',
+            'contact_number' => '+63 917 000 1111',
             'city' => 'Manila',
             'category_uuid' => $this->category->uuid,
             'event_type' => Event::EVENT_TYPES['DAILY'],
@@ -354,6 +359,7 @@ class EventControllerTest extends TestCase
             ->assertJson([
                 'data' => [
                     'event_name' => 'Updated Event',
+                    'contact_number' => '+63 917 000 1111',
                     'event_description' => 'Updated description',
                     'contact_email' => 'updated@event.com',
                 ],
@@ -364,6 +370,7 @@ class EventControllerTest extends TestCase
             'event_name' => 'Updated Event',
             'event_description' => 'Updated description',
             'contact_email' => 'updated@event.com',
+            'contact_number' => '+63 917 000 1111',
         ]);
     }
 

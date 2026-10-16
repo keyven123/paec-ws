@@ -65,6 +65,7 @@ class UpdateEventRequest extends FormRequest
                 ->whereNull('deleted_at')],
             'event_description' => ['required', 'string'],
             'contact_email' => ['required', 'email', 'max:255'],
+            'contact_number' => ['nullable', 'string', 'max:40'],
             'logo_uuid' => ['nullable', 'uuid'],
             'address' => ['nullable', 'string', 'max:255'],
             'city' => ['required', 'string', 'max:255'],
@@ -109,6 +110,10 @@ class UpdateEventRequest extends FormRequest
 
         $this->prepareMetaPixelFieldsForValidation();
         $this->preparePaymentGatewayFieldsForValidation();
+
+        if ($this->exists('contact_number') && ! $this->filled('contact_number')) {
+            $this->merge(['contact_number' => null]);
+        }
 
         if (!$this->filled('organization_uuid')) {
             $eventUuid = $this->route('uuid');
