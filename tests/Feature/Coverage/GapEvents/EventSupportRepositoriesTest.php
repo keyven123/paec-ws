@@ -14,7 +14,6 @@ use App\Models\EventTicket;
 use App\Models\EventTicketCoupon;
 use App\Models\PromoCode;
 use App\Models\ScheduleTime;
-use Illuminate\Validation\ValidationException;
 use PHPUnit\Framework\Attributes\Test;
 
 class EventSupportRepositoriesTest extends GapEventsTestCase
@@ -80,35 +79,34 @@ class EventSupportRepositoriesTest extends GapEventsTestCase
     }
 
     #[Test]
-    public function promoCodeCreateRejectsANonEventActivityableWithoutOrganization(): void
+    public function promoCodeCreateFallsBackToDefaultOrganizationWhenEventOrgIsMissing(): void
     {
-        $event = $this->createEvent('Promo Event');
+        $defaultOrg = $this->createOrganization([
+            'email' => 'inquire@paec.com',
+            'name' => 'PAEC',
+        ]);
 
-        try {
-            app(PromoCodeRepository::class)->create($this->promoPayload([
-                'activityable_type' => 'App\\Models\\VenueListing',
-                'activityable_id' => $event->uuid,
-            ]));
-            $this->fail('Expected a validation exception.');
-        } catch (ValidationException $e) {
-            $this->assertSame(
-                ['Unable to determine organization for this promo code.'],
-                $e->errors()['organization_uuid'],
-            );
-        }
+        $promo = app(PromoCodeRepository::class)->create($this->promoPayload([
+            'activityable_type' => 'App\\Models\\VenueListing',
+            'activityable_id' => $this->createEvent('Promo Event')->uuid,
+        ]));
 
-        $this->assertDatabaseCount('promo_codes', 0);
+        $this->assertSame($defaultOrg->uuid, $promo->organization_uuid);
     }
 
     #[Test]
-    public function promoCodeCreateRejectsAnUnknownEventActivityable(): void
+    public function promoCodeCreateAllowsNullOrganizationWhenNoneExists(): void
     {
-        $this->expectException(ValidationException::class);
-
-        app(PromoCodeRepository::class)->create($this->promoPayload([
+        $promo = app(PromoCodeRepository::class)->create($this->promoPayload([
             'activityable_type' => 'event',
             'activityable_id' => '00000000-0000-0000-0000-000000000000',
         ]));
+
+        $this->assertNull($promo->organization_uuid);
+        $this->assertDatabaseHas('promo_codes', [
+            'uuid' => $promo->uuid,
+            'organization_uuid' => null,
+        ]);
     }
 
     #[Test]
