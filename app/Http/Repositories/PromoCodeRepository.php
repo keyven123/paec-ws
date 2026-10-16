@@ -4,11 +4,12 @@ namespace App\Http\Repositories;
 
 use App\Exceptions\NoPromoCodeFoundException;
 use App\Exceptions\UnauthorizedException;
-use App\Models\Event;
-use App\Models\PromoCode;
 use App\Helpers\GeneralHelper;
+use App\Models\Event;
+use App\Models\Organization;
+use App\Models\PromoCode;
+use App\Services\PaecOrganizationService;
 use Illuminate\Contracts\Database\Eloquent\Builder;
-use Illuminate\Validation\ValidationException;
 
 class PromoCodeRepository
 {
@@ -61,7 +62,13 @@ class PromoCodeRepository
      */
     public function create(array $payload): PromoCode
     {
-        $payload['organization_uuid'] = $this->resolveOrganizationUuid($payload);
+        $organizationUuid = $this->resolveOrganizationUuid($payload);
+        if ($organizationUuid !== null) {
+            $payload['organization_uuid'] = $organizationUuid;
+        } else {
+            unset($payload['organization_uuid']);
+        }
+
         $promoCodePayload = GeneralHelper::unsetUnknownAndNullFields($payload, PromoCode::DATA);
         return $this->promoCode->create($promoCodePayload);
     }
@@ -74,11 +81,16 @@ class PromoCodeRepository
     public function update(PromoCode $promoCode, array $payload): bool|PromoCode
     {
         if (!isset($payload['organization_uuid']) || empty($payload['organization_uuid'])) {
-            $payload['organization_uuid'] = $this->resolveOrganizationUuid([
+            $organizationUuid = $this->resolveOrganizationUuid([
                 ...$payload,
                 'activityable_type' => $payload['activityable_type'] ?? $promoCode->activityable_type,
                 'activityable_id' => $payload['activityable_id'] ?? $promoCode->activityable_id,
             ]);
+            if ($organizationUuid !== null) {
+                $payload['organization_uuid'] = $organizationUuid;
+            } else {
+                unset($payload['organization_uuid']);
+            }
         }
         $promoCodePayload = GeneralHelper::unsetUnknownAndNullFields($payload, PromoCode::DATA);
         return $promoCode->update($promoCodePayload);
@@ -97,7 +109,7 @@ class PromoCodeRepository
         $promoCode->delete();
     }
 
-    private function resolveOrganizationUuid(array $payload): string
+    private function resolveOrganizationUuid(array $payload): ?string
     {
         if (!empty($payload['organization_uuid'])) {
             return $payload['organization_uuid'];
@@ -119,9 +131,12 @@ class PromoCodeRepository
             }
         }
 
-        throw ValidationException::withMessages([
-            'organization_uuid' => ['Unable to determine organization for this promo code.'],
-        ]);
+        $defaultOrganizationUuid = PaecOrganizationService::defaultOrganizationUuid();
+        if (!empty($defaultOrganizationUuid)) {
+            return $defaultOrganizationUuid;
+        }
+
+        return Organization::query()->value('uuid');
     }
 
     private function isEventActivityable(?string $activityableType): bool
