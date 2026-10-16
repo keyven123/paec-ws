@@ -19,6 +19,7 @@ use Carbon\Carbon;
 use Illuminate\Contracts\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 
 class EventRepository
 {
@@ -368,6 +369,13 @@ class EventRepository
         // so only real tickets block deletion.
         if ($event->tickets()->exists()) {
             throw new UnauthorizedException('Cannot delete event with existing registrations.');
+        }
+
+        // The slug column is unique across soft-deleted rows, so release it for reuse.
+        if ($event->slug) {
+            $suffix = '--deleted-' . now()->timestamp;
+            $event->slug = Str::limit($event->slug, 255 - strlen($suffix), '') . $suffix;
+            $event->save();
         }
 
         $event->delete();
