@@ -250,6 +250,53 @@ class EventControllerTest extends TestCase
     }
 
     #[\PHPUnit\Framework\Attributes\Test]
+    public function itCanUpdateMetaPixelWithoutSendingOrganizationUuid(): void
+    {
+        $this->adminRole->update(['is_admin' => true]);
+
+        $event = Event::create([
+            'event_name' => 'Pixel Activity',
+            'event_description' => 'Activity with tracking',
+            'contact_email' => 'contact@event.com',
+            'city' => 'Manila',
+            'category_uuid' => $this->category->uuid,
+            'event_type' => Event::EVENT_TYPES['DAILY'],
+            'schedule_type' => Event::SCHEDULE_TYPES['DAILY'],
+            'event_config' => Event::EVENT_CONFIGS['OPEN_TICKET'],
+            'slug' => 'pixel-activity',
+            'status' => GeneralConstants::EVENT_STATUSES['DRAFT'],
+            'organization_uuid' => null,
+        ]);
+
+        $this->withHeaders([
+            'Authorization' => 'Bearer ' . $this->adminToken,
+        ])->post('/api/v1/events/' . $event->uuid, [
+            '_method' => 'PUT',
+            'event_name' => 'Pixel Activity',
+            'event_description' => 'Activity with tracking',
+            'contact_email' => 'contact@event.com',
+            'city' => 'Manila',
+            'category_uuid' => $this->category->uuid,
+            'event_type' => Event::EVENT_TYPES['DAILY'],
+            'event_config' => Event::EVENT_CONFIGS['OPEN_TICKET'],
+            'slug' => 'pixel-activity',
+            'status' => GeneralConstants::EVENT_STATUSES['DRAFT'],
+            'enable_meta_pixel' => 'true',
+            'meta_pixel_id' => '884909569541937',
+            'meta_pixel_access_token' => 'EAAU7eILt9LlBSqEY-test-token',
+        ])->assertOk()
+            ->assertJsonPath('data.track_event_meta', true)
+            ->assertJsonPath('data.meta_pixel_id', '884909569541937');
+
+        $this->assertDatabaseHas('events', [
+            'uuid' => $event->uuid,
+            'track_event_meta' => true,
+            'meta_pixel_id' => '884909569541937',
+            'meta_pixel_key' => 'EAAU7eILt9LlBSqEY-test-token',
+        ]);
+    }
+
+    #[\PHPUnit\Framework\Attributes\Test]
     public function itCanShowAnEvent()
     {
         $event = Event::create([
