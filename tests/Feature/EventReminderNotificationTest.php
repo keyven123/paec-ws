@@ -242,8 +242,8 @@ class EventReminderNotificationTest extends TestCase
      *
      * The real class is `final`, so Mockery cannot subclass it. Laravel's container does not
      * type-check `instance()` bindings, and EventReminderNotification only calls
-     * `buildAttachment()` / `buildCouponsAttachment()` on the resolved object, so this stub
-     * is sufficient to capture call counts and control return values.
+     * `activityLogoBinary()` / `buildAttachment()` / `buildCouponsAttachment()` on the
+     * resolved object, so this stub is sufficient to capture call counts and control return values.
      *
      * @param  array{data: string, filename: string, mime: string}|null  $ticketReturn
      * @param  array{data: string, filename: string, mime: string}|null  $couponReturn
@@ -260,6 +260,11 @@ class EventReminderNotificationTest extends TestCase
                 private readonly ?array $ticketReturn,
                 private readonly ?array $couponReturn,
             ) {
+            }
+
+            public function activityLogoBinary($event): ?string
+            {
+                return null;
             }
 
             public function buildAttachment($transaction, $ticket): ?array

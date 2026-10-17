@@ -24,6 +24,9 @@ class ModelFilterScopesCoverageTest extends TestCase
     #[Test]
     public function categoryFiltersByKeywordAndType(): void
     {
+        // Marketplace migration seeds default FUN categories; clear them for an isolated filter check.
+        Category::withTrashed()->forceDelete();
+
         $concert = Category::create(['name' => 'Concert', 'code' => 'concert', 'type' => Category::TYPES['EVENT']]);
         $rides = Category::create(['name' => 'Rides', 'code' => 'thrill_rides', 'type' => Category::TYPES['FUN']]);
 
