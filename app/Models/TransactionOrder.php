@@ -30,6 +30,7 @@ class TransactionOrder extends Model
         'total_amount',
         'seats',
         'valid_until',
+        'visit_time',
     ];
 
     protected $casts = [
@@ -59,6 +60,7 @@ class TransactionOrder extends Model
         'total_amount',
         'seats',
         'valid_until',
+        'visit_time',
     ];
 
     // Relationships

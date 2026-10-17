@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\Event;
 use App\Models\Ticket;
 use App\Models\TicketCoupon;
 use App\Models\Transaction;
@@ -10,6 +11,7 @@ use Dompdf\Dompdf;
 use Dompdf\Options;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
 /**
@@ -66,6 +68,61 @@ final class TicketEmailExportService
             ];
         } catch (\Throwable $e) {
             Log::error('Ticket email export failed', [
+                'ticket' => $ticket->uuid,
+                'error' => $e->getMessage(),
+            ]);
+
+            return null;
+        }
+    }
+
+    /**
+     * Full A4 sponsor ticket page (TicketNet-style layout, PAEC theme).
+     *
+     * @return array{data: string, filename: string, mime: string}|null
+     */
+    public function buildSponsorPageAttachment(
+        Transaction $transaction,
+        Ticket $ticket,
+        int $ticketIndex = 1,
+        int $ticketCount = 1,
+    ): ?array {
+        try {
+            $html = view(
+                'pdf.sponsor-ticket-page',
+                $this->sponsorPageViewData($transaction, $ticket, $ticketIndex, $ticketCount),
+            )->render();
+
+            $options = new Options;
+            $options->set('isRemoteEnabled', true);
+            $options->set('isHtml5ParserEnabled', true);
+            $options->set('defaultFont', 'DejaVu Sans');
+            $options->set('chroot', base_path());
+
+            $dompdf = new Dompdf($options);
+            $dompdf->loadHtml($html, 'UTF-8');
+            $dompdf->setPaper('A4', 'portrait');
+            $dompdf->render();
+            $pdf = $dompdf->output();
+
+            $filenameBase = 'sponsor-' . $this->attachmentBaseName($transaction, $ticket);
+
+            $png = $this->pdfBlobToPng($pdf);
+            if ($png !== null) {
+                return [
+                    'data' => $png,
+                    'filename' => $filenameBase . '.png',
+                    'mime' => 'image/png',
+                ];
+            }
+
+            return [
+                'data' => $pdf,
+                'filename' => $filenameBase . '.pdf',
+                'mime' => 'application/pdf',
+            ];
+        } catch (\Throwable $e) {
+            Log::error('Sponsor ticket email export failed', [
                 'ticket' => $ticket->uuid,
                 'error' => $e->getMessage(),
             ]);
@@ -174,6 +231,75 @@ final class TicketEmailExportService
     /**
      * @return array<string, mixed>
      */
+    private function sponsorPageViewData(
+        Transaction $transaction,
+        Ticket $ticket,
+        int $ticketIndex,
+        int $ticketCount,
+    ): array {
+        $base = $this->viewData($transaction, $ticket);
+        $event = $transaction->relationLoaded('event') && $transaction->event
+            ? $transaction->event
+            : ($ticket->relationLoaded('event') ? $ticket->event : null);
+        $organizationName = $event?->organization?->name ?? 'PAEC';
+
+        $isComplimentary = (float) ($ticket->price ?? 0) <= 0.0
+            && (float) ($transaction->total_amount ?? 0) <= 0.0;
+
+        $paecLogoSrc = $this->resolveLocalImageSrcForDompdf(public_path('images/logo/Paec-Logo.png'))
+            ?? $this->resolveLocalImageSrcForDompdf(public_path('images/logo/paec-logo.png'))
+            ?? $this->resolveLocalImageSrcForDompdf($this->qrPngService->logoAbsolutePath());
+
+        return array_merge($base, [
+            'organizationName' => strtoupper((string) $organizationName),
+            'sectionLabel' => $ticket->eventTicket?->name ?? 'GA',
+            'ticketIndex' => max(1, $ticketIndex),
+            'ticketCount' => max(1, $ticketCount),
+            'priceFormatted' => $isComplimentary
+                ? 'COMPLIMENTARY'
+                : ($base['priceFormatted'] ?? '₱0.00'),
+            'paecLogoSrc' => $paecLogoSrc,
+            'termsText' => $this->extractTermsFromDescription($event?->event_description),
+        ]);
+    }
+
+    /**
+     * Pull TERMS & CONDITIONS from the activity description when present.
+     */
+    private function extractTermsFromDescription(?string $description): string
+    {
+        $default = "Complimentary sponsor tickets are non-transferable unless approved by the organizer.\n"
+            . "Present the QR code at the entrance for admission.\n"
+            . "Lost or duplicated tickets may be voided.\n"
+            . "The organizer reserves the right to refuse entry for safety or policy reasons.";
+
+        if ($description === null || trim($description) === '') {
+            return $default;
+        }
+
+        if (preg_match(
+            '/TERMS\s*&?\s*CONDITIONS[:\s]*(.*?)(?=OPERATING\s+HOURS|CONTACT\s+INFORMATION|\z)/is',
+            $description,
+            $matches,
+        )) {
+            $extracted = trim(preg_replace("/[ \t]+/", ' ', str_replace("\r\n", "\n", $matches[1])) ?? '');
+            $extracted = trim(preg_replace("/\n{3,}/", "\n\n", $extracted) ?? '');
+            if ($extracted !== '') {
+                // Keep Dompdf-friendly length for the side panel.
+                if (Str::length($extracted) > 900) {
+                    $extracted = Str::limit($extracted, 900, '...');
+                }
+
+                return $extracted;
+            }
+        }
+
+        return $default;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
     private function viewData(Transaction $transaction, Ticket $ticket): array
     {
         $event = $ticket->relationLoaded('event') ? $ticket->event : $transaction->event;
@@ -182,10 +308,24 @@ final class TicketEmailExportService
         $portraitUrl = $event?->portraitImage?->url;
         $eventImageDataUri = $this->fetchImageAsDataUri($portraitUrl);
 
-        $siteLogoDataUri = $this->fileToDataUri(public_path('images/logo/paec-logo.png'))
-            ?? $this->fileToDataUri($this->qrPngService->logoAbsolutePath());
+        // Prefer the activity logo on e-tickets; fall back to PAEC brand mark.
+        // Dompdf often drops large data: URIs — always feed a local file path (same as QR).
+        $eventModel = $event instanceof Event ? $event : null;
+        $activityLogoBinary = $this->activityLogoBinary($eventModel);
+        $siteLogoSrc = $this->resolveImageSrcForDompdf(
+            $activityLogoBinary,
+            'activity-logo:' . (string) ($eventModel?->uuid ?? 'none'),
+        );
+        if ($siteLogoSrc === null) {
+            $siteLogoSrc = $this->resolveLocalImageSrcForDompdf(public_path('images/logo/Paec-Logo.png'))
+                ?? $this->resolveLocalImageSrcForDompdf(public_path('images/logo/paec-logo.png'))
+                ?? $this->resolveLocalImageSrcForDompdf($this->qrPngService->logoAbsolutePath());
+        }
 
-        $qrBinary = $this->qrPngService->pngBinary($ticket->qr_code ?? '');
+        $qrCenterLogoPath = $activityLogoBinary !== null
+            ? $this->qrPngService->writeTempLogoFile($activityLogoBinary)
+            : null;
+        $qrBinary = $this->qrPngService->pngBinary($ticket->qr_code ?? '', $qrCenterLogoPath);
         $qrImageSrc = $this->resolvePngSrcForDompdf($qrBinary, 'ticket:' . (string) $ticket->uuid);
 
         $venueName = $ticket->eventLocation?->displayLabel() ?? $ticket->venueSeat?->venue?->name ?? $event?->address ?? '—';
@@ -206,7 +346,7 @@ final class TicketEmailExportService
         $seat = ($row !== '' || $col !== '') ? "{$row}-{$col}" : '—';
 
         return [
-            'siteLogoDataUri' => $siteLogoDataUri,
+            'siteLogoDataUri' => $siteLogoSrc,
             'eventImageDataUri' => $eventImageDataUri,
             'qrImageSrc' => $qrImageSrc,
             'eventName' => $eventName,
@@ -318,7 +458,73 @@ final class TicketEmailExportService
         return "$a$b";
     }
 
-    private function fileToDataUri(?string $path): ?string
+    /**
+     * Read the activity logo from its storage disk (public / S3 / Spaces), not via HTTP.
+     * Queue workers often cannot reach APP_URL, so disk reads are required.
+     */
+    public function activityLogoBinary(?Event $event): ?string
+    {
+        if ($event === null) {
+            return null;
+        }
+
+        $event->loadMissing('logo');
+        $logo = $event->logo;
+        if ($logo === null || empty($logo->path)) {
+            return null;
+        }
+
+        try {
+            $disk = Storage::disk($logo->disk ?: config('filesystems.default'));
+            if ($disk->exists($logo->path)) {
+                $bin = $disk->get($logo->path);
+                if (is_string($bin) && $bin !== '') {
+                    return $bin;
+                }
+            }
+        } catch (\Throwable $e) {
+            Log::debug('Ticket export: activity logo disk read failed', [
+                'event' => $event->uuid,
+                'error' => $e->getMessage(),
+            ]);
+        }
+
+        // Spaces/CDN public URL fallback when disk read fails.
+        return $this->fetchRawImageBinary($logo->url);
+    }
+
+    /**
+     * Cache binary image to disk and return a Dompdf-safe src (file path / file://).
+     */
+    private function resolveImageSrcForDompdf(?string $binary, string $cacheKey): ?string
+    {
+        if ($binary === null || $binary === '') {
+            return null;
+        }
+
+        $dir = storage_path('app/dompdf-qr-cache');
+        if (! is_dir($dir)) {
+            @mkdir($dir, 0755, true);
+        }
+
+        $ext = str_starts_with($binary, "\x89PNG") ? 'png' : 'jpg';
+        $filename = hash('sha256', $cacheKey . "\0" . hash('sha256', $binary)) . '.' . $ext;
+        $fullPath = $dir . DIRECTORY_SEPARATOR . $filename;
+
+        try {
+            if (! is_file($fullPath)) {
+                if (@file_put_contents($fullPath, $binary) === false) {
+                    return $this->binaryToDataUri($binary);
+                }
+            }
+
+            return $this->pathToDompdfSrc($fullPath) ?? $this->binaryToDataUri($binary);
+        } catch (\Throwable) {
+            return $this->binaryToDataUri($binary);
+        }
+    }
+
+    private function resolveLocalImageSrcForDompdf(?string $path): ?string
     {
         if ($path === null || $path === '' || ! is_readable($path)) {
             return null;
@@ -326,6 +532,36 @@ final class TicketEmailExportService
 
         $bin = @file_get_contents($path);
         if ($bin === false || $bin === '') {
+            return null;
+        }
+
+        return $this->resolveImageSrcForDompdf($bin, 'local:' . $path);
+    }
+
+    private function pathToDompdfSrc(string $fullPath): ?string
+    {
+        if (! is_readable($fullPath) || (int) filesize($fullPath) === 0) {
+            return null;
+        }
+
+        $resolved = realpath($fullPath);
+        $normalized = str_replace('\\', '/', $resolved !== false ? $resolved : $fullPath);
+
+        if (str_starts_with($normalized, '/')) {
+            return 'file://' . $normalized;
+        }
+
+        // Windows: Dompdf cannot parse file:///C:/... URLs but loads plain drive paths.
+        if (preg_match('#^[A-Za-z]:/#', $normalized) === 1) {
+            return $normalized;
+        }
+
+        return null;
+    }
+
+    private function binaryToDataUri(?string $bin): ?string
+    {
+        if ($bin === null || $bin === '') {
             return null;
         }
 
@@ -342,6 +578,41 @@ final class TicketEmailExportService
         }
 
         return 'data:' . $mime . ';base64,' . base64_encode($bin);
+    }
+
+    private function fetchRawImageBinary(?string $url): ?string
+    {
+        if ($url === null || $url === '') {
+            return null;
+        }
+
+        try {
+            $response = Http::timeout(12)->withHeaders(['Accept' => 'image/*'])->get($url);
+            if (! $response->successful()) {
+                return null;
+            }
+            $bin = $response->body();
+
+            return $bin !== '' ? $bin : null;
+        } catch (\Throwable $e) {
+            Log::debug('Ticket export: raw image fetch failed', ['url' => $url, 'error' => $e->getMessage()]);
+
+            return null;
+        }
+    }
+
+    private function fileToDataUri(?string $path): ?string
+    {
+        if ($path === null || $path === '' || ! is_readable($path)) {
+            return null;
+        }
+
+        $bin = @file_get_contents($path);
+        if ($bin === false || $bin === '') {
+            return null;
+        }
+
+        return $this->binaryToDataUri($bin);
     }
 
     private function fetchImageAsDataUri(?string $url): ?string

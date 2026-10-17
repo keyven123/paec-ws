@@ -110,7 +110,7 @@ trait BuildsTicketTransactions
     }
 
     /**
-     * TicketEmailExportService is final; the notifications only call these two methods on the resolved instance.
+     * TicketEmailExportService is final; the notifications only call these methods on the resolved instance.
      *
      * @param  array{data: string, filename: string, mime: string}|null  $ticketReturn
      * @param  array{data: string, filename: string, mime: string}|null  $couponReturn
@@ -127,6 +127,11 @@ trait BuildsTicketTransactions
                 private readonly ?array $ticketReturn,
                 private readonly ?array $couponReturn,
             ) {
+            }
+
+            public function activityLogoBinary($event): ?string
+            {
+                return null;
             }
 
             public function buildAttachment($transaction, $ticket): ?array

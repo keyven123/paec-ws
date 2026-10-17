@@ -111,6 +111,13 @@ class EventResource extends JsonResource
                     'name' => $this->organization->name,
                 ];
             }),
+            'logo' => $this->whenLoaded('logo', function () {
+                return [
+                    'uuid' => $this->logo->uuid,
+                    'url' => $this->logo->url,
+                    'disk' => $this->logo->disk,
+                ];
+            }),
             'portrait_image' => $this->whenLoaded('portraitImage', function () {
                 return [
                     'uuid' => $this->portraitImage->uuid,

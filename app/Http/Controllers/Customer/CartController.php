@@ -73,6 +73,7 @@ class CartController extends Controller
             'event_uuid' => $payload['event_uuid'],
             'event_location_uuid' => $payload['event_location_uuid'] ?? null,
             'visit_date' => $payload['visit_date'],
+            'visit_time' => $payload['visit_time'] ?? null,
             'promo_code_uuid' => $payload['promo_code_uuid'] ?? null,
             'tickets' => array_map(fn (array $ticket) => [
                 'event_ticket_uuid' => $ticket['event_ticket_uuid'],
@@ -98,6 +99,9 @@ class CartController extends Controller
             'event_slug' => $cartItem->event?->slug,
             'event_location_uuid' => $cartItem->event_location_uuid,
             'visit_date' => $cartItem->visit_date->toDateString(),
+            'visit_time' => $cartItem->visit_time
+                ? substr((string) $cartItem->visit_time, 0, 5)
+                : null,
             'promo_code_uuid' => $cartItem->promo_code_uuid,
             'tickets' => array_map(function (array $ticket) use ($eventTickets) {
                 $eventTicket = $eventTickets->get($ticket['event_ticket_uuid']);

@@ -136,6 +136,26 @@ class TicketEmailExportServiceCoverageTest extends TestCase
         return 'data:image/png;base64,' . base64_encode((new TicketQrPngService)->pngBinary($payload));
     }
 
+    /**
+     * Dompdf site/activity logos are cached under storage and passed as file paths (not data URIs).
+     */
+    private function cachedImageSrc(string $binary, string $cacheKey): string
+    {
+        $ext = str_starts_with($binary, "\x89PNG") ? 'png' : 'jpg';
+        $cacheFile = storage_path('app/dompdf-qr-cache') . DIRECTORY_SEPARATOR
+            . hash('sha256', $cacheKey . "\0" . hash('sha256', $binary)) . '.' . $ext;
+
+        return $this->qrFileSrc($cacheFile);
+    }
+
+    private function defaultSiteLogoSrc(): string
+    {
+        $path = (new TicketQrPngService)->logoAbsolutePath();
+        $binary = (string) file_get_contents($path);
+
+        return $this->cachedImageSrc($binary, 'local:' . $path);
+    }
+
     private function createCoupon(Ticket $ticket, string $name, string $qr, string $createdAt): TicketCoupon
     {
         $coupon = TicketCoupon::create([
@@ -177,10 +197,7 @@ class TicketEmailExportServiceCoverageTest extends TestCase
         $this->assertSame('7:00 PM - 9:30 PM', $data['scheduleRange']);
         $this->assertSame('B-7', $data['seat']);
         $this->assertNull($data['eventImageDataUri']);
-        $this->assertSame(
-            'data:image/png;base64,' . base64_encode(file_get_contents((new TicketQrPngService)->logoAbsolutePath())),
-            $data['siteLogoDataUri'],
-        );
+        $this->assertSame($this->defaultSiteLogoSrc(), $data['siteLogoDataUri']);
 
         $cacheFile = $this->qrCacheFile('ticket:' . $ticket->uuid, 'QR-SUMMER-0001');
         $this->assertFileExists($cacheFile);
@@ -312,7 +329,7 @@ class TicketEmailExportServiceCoverageTest extends TestCase
         $this->assertSame('—', $data['scheduleDateFormatted']);
         $this->assertSame('', $data['scheduleDayUpper']);
         $this->assertSame('—', $data['scheduleRange']);
-        $this->assertDirectoryDoesNotExist(storage_path('app/dompdf-qr-cache'));
+        $this->assertNotNull($data['siteLogoDataUri']);
     }
 
     public static function scheduleTimeRanges(): array
@@ -392,27 +409,32 @@ class TicketEmailExportServiceCoverageTest extends TestCase
         $image = imagecreatetruecolor(4, 4);
         ob_start();
         imagegif($image);
-        $gif = ob_get_clean();
+        $gif = (string) ob_get_clean();
         File::ensureDirectoryExists(public_path('images/logo'));
         File::put(public_path('images/logo/paec-logo.png'), $gif);
         [$transaction, $ticket] = $this->makeTicket();
 
         $this->service()->buildAttachment($transaction, $ticket);
 
-        $this->assertSame('data:image/gif;base64,' . base64_encode($gif), $this->viewData['pdf.ticket-email-card']['siteLogoDataUri']);
+        $src = $this->viewData['pdf.ticket-email-card']['siteLogoDataUri'];
+        $this->assertIsString($src);
+        $this->assertStringNotContainsString('data:', $src);
+        $this->assertFileExists($src);
+        $this->assertSame($gif, (string) file_get_contents($src));
     }
 
     #[Test]
     public function buildAttachmentFallsBackToQrLogoWhenPublicLogoIsEmpty(): void
     {
         File::ensureDirectoryExists(public_path('images/logo'));
+        File::put(public_path('images/logo/Paec-Logo.png'), '');
         File::put(public_path('images/logo/paec-logo.png'), '');
         [$transaction, $ticket] = $this->makeTicket();
 
         $this->service()->buildAttachment($transaction, $ticket);
 
         $this->assertSame(
-            'data:image/png;base64,' . base64_encode(file_get_contents((new TicketQrPngService)->logoAbsolutePath())),
+            $this->defaultSiteLogoSrc(),
             $this->viewData['pdf.ticket-email-card']['siteLogoDataUri'],
         );
     }

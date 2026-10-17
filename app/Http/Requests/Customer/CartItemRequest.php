@@ -34,6 +34,7 @@ class CartItemRequest extends FormRequest
                     ->where('is_active', true),
             ],
             'visit_date' => ['required', 'date_format:Y-m-d', 'after_or_equal:today'],
+            'visit_time' => ['nullable', 'date_format:H:i'],
             'promo_code_uuid' => [
                 'nullable',
                 'uuid',
@@ -94,12 +95,40 @@ class CartItemRequest extends FormRequest
                     continue;
                 }
 
-                if (! $eventTicket->isAvailableForVisitDate($visitDate)) {
+                if (! $eventTicket->isCurrentlyOnSale()) {
                     $name = $eventTicket->name ?: 'This ticket';
                     $validator->errors()->add(
                         "tickets.{$index}.event_ticket_uuid",
-                        "{$name} is unavailable for the selected date of visit.",
+                        "{$name} is not available for purchase at this time.",
                     );
+                    continue;
+                }
+
+                if (! $eventTicket->isAvailableForVisitDate($visitDate)) {
+                    $name = $eventTicket->name ?: 'This ticket';
+                    $msg = ! $eventTicket->allowsVisitDayOfWeek($visitDate)
+                        ? ($eventTicket->operation_days === 'weekdays'
+                            ? "{$name} is available on weekdays only."
+                            : ($eventTicket->operation_days === 'weekends'
+                                ? "{$name} is available on weekends only."
+                                : "{$name} is unavailable for the selected date of visit."))
+                        : "{$name} is unavailable for the selected date of visit.";
+                    $validator->errors()->add("tickets.{$index}.event_ticket_uuid", $msg);
+                }
+
+                if ($eventTicket->hasOperationHours()) {
+                    $visitTime = $this->input('visit_time');
+                    if (empty($visitTime)) {
+                        $validator->errors()->add(
+                            'visit_time',
+                            'Please select a visit time.',
+                        );
+                    } elseif (! $eventTicket->allowsVisitTime($visitTime)) {
+                        $validator->errors()->add(
+                            'visit_time',
+                            ($eventTicket->name ?: 'This ticket').' is outside operation hours.',
+                        );
+                    }
                 }
             }
         });

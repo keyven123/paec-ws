@@ -71,6 +71,13 @@ class EventShowPublicResource extends JsonResource
                 ])->values();
             }),
             // Note: meta_pixel_key is intentionally excluded from public responses for security
+            'logo' => $this->whenLoaded('logo', function () {
+                return [
+                    'uuid' => $this->logo->uuid,
+                    'url' => $this->logo->url,
+                    'disk' => $this->logo->disk,
+                ];
+            }),
             'portrait_image' => $this->whenLoaded('portraitImage', function () {
                 return [
                     'uuid' => $this->portraitImage->uuid,

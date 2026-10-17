@@ -433,6 +433,9 @@ class TempTransactionController extends Controller
                     'event_ticket_uuid' => $ticket['event_ticket_uuid'],
                     'quantity' => (int) $ticket['quantity'],
                     'valid_until' => $item->visit_date->toDateString(),
+                    'visit_time' => $item->visit_time
+                        ? substr((string) $item->visit_time, 0, 5)
+                        : null,
                 ], $item->tickets),
             ], $user));
 
@@ -561,10 +564,13 @@ class TempTransactionController extends Controller
                 }
 
                 $eventTicket = EventTicket::query()->where('uuid', $ticketUuid)->first();
-                if ($eventTicket && ! $eventTicket->isAvailableForVisitDate($visitDate)) {
+                if ($eventTicket && ! $eventTicket->isAvailableForPurchase($visitDate)) {
                     $ticketName = $eventTicket->name ?: 'A ticket';
+                    $message = $eventTicket->isCurrentlyOnSale()
+                        ? "{$ticketName} for {$event->event_name} is unavailable for the selected date of visit. Please remove it and book again."
+                        : "{$ticketName} for {$event->event_name} is not available for purchase at this time. Please remove it from your cart.";
                     throw ValidationException::withMessages([
-                        'cart' => ["{$ticketName} for {$event->event_name} is unavailable for the selected date of visit. Please remove it and book again."],
+                        'cart' => [$message],
                     ]);
                 }
             }

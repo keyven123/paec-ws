@@ -23,15 +23,47 @@ final class TicketQrPngService
     }
 
     /**
-     * Raw PNG bytes for embedding (e.g. PDF/PNG ticket export), or null if only SVG is available.
+     * Write image bytes to a temp file Endroid can read (JPEG/PNG).
      */
-    public function pngBinary(?string $qrPayload): ?string
+    public function writeTempLogoFile(string $binary): ?string
+    {
+        if ($binary === '') {
+            return null;
+        }
+
+        $dir = storage_path('app/dompdf-qr-cache');
+        if (! is_dir($dir)) {
+            @mkdir($dir, 0755, true);
+        }
+
+        $ext = str_starts_with($binary, "\x89PNG") ? 'png' : 'jpg';
+        $path = $dir . DIRECTORY_SEPARATOR . hash('sha256', $binary) . '-center-logo.' . $ext;
+
+        try {
+            if (! is_file($path) && @file_put_contents($path, $binary) === false) {
+                return null;
+            }
+
+            return is_readable($path) ? $path : null;
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
+    /**
+     * Raw PNG bytes for embedding (e.g. PDF/PNG ticket export), or null if only SVG is available.
+     *
+     * @param  string|null  $centerLogoPath  Absolute path to activity logo; defaults to PAEC mark.
+     */
+    public function pngBinary(?string $qrPayload, ?string $centerLogoPath = null): ?string
     {
         if ($qrPayload === null || $qrPayload === '') {
             return null;
         }
 
-        $logoPath = $this->logoAbsolutePath();
+        $logoPath = ($centerLogoPath !== null && is_readable($centerLogoPath))
+            ? $centerLogoPath
+            : $this->logoAbsolutePath();
 
         try {
             $qrCode = QrCode::create($qrPayload)

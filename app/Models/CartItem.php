@@ -23,6 +23,7 @@ class CartItem extends Model
         'event_uuid',
         'event_location_uuid',
         'visit_date',
+        'visit_time',
         'promo_code_uuid',
         'tickets',
         'details',

@@ -69,9 +69,10 @@ class TicketRepositoryAddToUserTest extends TestCase
         $event = $this->createEvent();
         $eventTicket = $this->createEventTicket($event);
 
-        $this->assertTrue($this->repository->addTicketToUser(
+        $transaction = $this->repository->addTicketToUser(
             $this->payload($event, $eventTicket, ['valid_until' => '2027-01-15'])
-        ));
+        );
+        $this->assertNotNull($transaction->uuid);
 
         $ticket = Ticket::where('user_uuid', $this->customer->uuid)->sole();
         $this->assertSame('2027-01-15 23:59:59', $ticket->valid_until->format('Y-m-d H:i:s'));

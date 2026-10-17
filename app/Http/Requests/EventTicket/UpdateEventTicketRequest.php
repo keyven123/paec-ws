@@ -73,6 +73,18 @@ class UpdateEventTicketRequest extends FormRequest
             ],
             'available_from' => ['nullable', 'date_format:Y-m-d H:i:s'],
             'available_to' => ['nullable', 'date_format:Y-m-d H:i:s', 'after_or_equal:available_from'],
+            'feature_on_flash_sale' => ['nullable', 'boolean'],
+            'flash_sale_from' => [
+                'nullable',
+                'date_format:Y-m-d H:i:s',
+                Rule::requiredIf(fn () => (bool) $this->input('feature_on_flash_sale')),
+            ],
+            'flash_sale_to' => [
+                'nullable',
+                'date_format:Y-m-d H:i:s',
+                'after_or_equal:flash_sale_from',
+                Rule::requiredIf(fn () => (bool) $this->input('feature_on_flash_sale')),
+            ],
             'display_order' => ['nullable', 'integer', 'min:1'],
             'max_ticket' => ['sometimes', 'required_if:is_unlimited,false', 'integer', 'min:0'],
             'ticket_limit_per_user' => ['nullable', 'integer', 'min:1'],
@@ -83,6 +95,13 @@ class UpdateEventTicketRequest extends FormRequest
             })],
             'visit_policy' => ['nullable', 'string', Rule::in(['priority', 'flexible'])],
             'validity_days' => ['nullable', 'integer', 'min:1'],
+            'operation_days' => ['nullable', 'string', Rule::in(['any', 'weekdays', 'weekends'])],
+            'operation_hours_from' => ['nullable', 'date_format:H:i'],
+            'operation_hours_to' => [
+                'nullable',
+                'date_format:H:i',
+                'after_or_equal:operation_hours_from',
+            ],
             'status' => ['nullable', 'string', Rule::in(GeneralConstants::GENERAL_STATUSES)],
             'bg_color' => ['nullable', 'string', 'max:255'],
             'with_coupon' => ['nullable', 'boolean'],
@@ -129,6 +148,9 @@ class UpdateEventTicketRequest extends FormRequest
     {
         return [
             'available_to.after_or_equal' => 'The available to date must be after or equal to the available from date.',
+            'flash_sale_from.required' => 'Flash sale from is required when Flash to Featured is enabled.',
+            'flash_sale_to.required' => 'Flash sale to is required when Flash to Featured is enabled.',
+            'flash_sale_to.after_or_equal' => 'The flash sale to date must be after or equal to the flash sale from date.',
             'code.unique' => 'This code is already used for another ticket in this event.',
             'bundle_tickets.*.not_in' => 'A ticket cannot include itself in its bundle.',
             'event_uuid.exists' => 'The selected event does not exist.',

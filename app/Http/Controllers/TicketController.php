@@ -11,6 +11,9 @@ use App\Http\Resources\TicketResource;
 use App\Exceptions\NoTicketFoundException;
 use App\Exceptions\UnauthorizedException;
 use App\Http\Requests\Ticket\AddTicketToUserRequest;
+use App\Http\Requests\Ticket\SendSponsorTicketsRequest;
+use App\Models\Ticket;
+use App\Services\Checkout\GuestCustomerService;
 use Illuminate\Http\Response;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -123,6 +126,55 @@ class TicketController extends Controller
             'success' => true,
             'message' => 'Ticket added to user successfully'
         ], 201);
+    }
+
+    /**
+     * Issue complimentary sponsor tickets for an email and send the e-ticket PDF.
+     */
+    public function sendSponsorTickets(SendSponsorTicketsRequest $request): JsonResponse
+    {
+        try {
+            $payload = $request->validated();
+            $recipient = GuestCustomerService::resolveByEmail($payload['email']);
+
+            $transaction = $this->ticketRepository->addTicketToUser([
+                'event_uuid' => $payload['event_uuid'],
+                'event_ticket_uuid' => $payload['event_ticket_uuid'],
+                'user_uuid' => $recipient->uuid,
+                'type' => Ticket::TYPES['COMPLEMENTARY'],
+                'quantity' => (int) $payload['quantity'],
+                'valid_until' => $payload['valid_until'] ?? null,
+                'order_prefix' => 'SPON-',
+                'qr_prefix' => 'SPON-',
+            ]);
+
+            $recipient->notify(
+                new PaymentSuccessfulNotification(
+                    $transaction->uuid,
+                    PaymentSuccessfulNotification::CONTEXT_SPONSOR,
+                ),
+            );
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Sponsor tickets sent successfully.',
+                'data' => [
+                    'transaction_uuid' => $transaction->uuid,
+                    'order_number' => $transaction->order_number,
+                    'quantity' => (int) $payload['quantity'],
+                    'recipient' => [
+                        'email' => $recipient->email,
+                        'uuid' => $recipient->uuid,
+                        'is_new_account' => $recipient->wasRecentlyCreated,
+                    ],
+                ],
+            ], 201);
+        } catch (UnauthorizedException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage(),
+            ], 403);
+        }
     }
 
     /**

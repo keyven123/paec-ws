@@ -32,5 +32,8 @@ Route::group(['prefix' => 'transactions', 'middleware' => 'auth:admin'], functio
 
         Route::post('/send-tickets', [TransactionController::class, 'sendTickets'])
             ->middleware('can:transactions-execute');
+
+        Route::post('/reschedule', [TransactionController::class, 'reschedule'])
+            ->middleware('can:transactions-edit');
     });
 });
