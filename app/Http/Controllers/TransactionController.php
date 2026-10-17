@@ -3,8 +3,10 @@
 namespace App\Http\Controllers;
 
 use App\Http\Repositories\TransactionRepository;
+use App\Constants\GeneralConstants;
 use App\Http\Requests\Transaction\CreateTransactionRequest;
 use App\Http\Requests\Transaction\ExportTransactionReportRequest;
+use App\Http\Requests\Transaction\RescheduleTransactionRequest;
 use App\Http\Requests\Transaction\UpdateTransactionRequest;
 use App\Http\Requests\Transaction\ListTransactionRequest;
 use App\Http\Requests\Transaction\SendTransactionTicketsRequest;
@@ -15,7 +17,9 @@ use App\Models\Event;
 use App\Models\Transaction;
 use App\Services\TransactionReportService;
 use App\Services\TransactionTicketDeliveryService;
+use Carbon\Carbon;
 use Illuminate\Http\Response;
+use Illuminate\Support\Facades\DB;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Str;
@@ -146,6 +150,89 @@ class TransactionController extends Controller
                 'email' => $recipient->email,
                 'is_new_account' => $recipient->wasRecentlyCreated,
             ],
+        ]);
+    }
+
+    /**
+     * Admin reschedule: set a new date of visit for tickets on this transaction.
+     * Bypasses sale / availability windows so expired or past-due tickets can be moved.
+     */
+    public function reschedule(RescheduleTransactionRequest $request, string $uuid): JsonResponse
+    {
+        try {
+            $transaction = $this->transactionRepository->fetchOrThrowForViewer($uuid);
+        } catch (NoTransactionFoundException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Transaction not found',
+            ], 404);
+        }
+
+        if ($transaction->payment_status !== Transaction::PAYMENT_STATUS['PAID']) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Only paid transactions can be rescheduled.',
+            ], 422);
+        }
+
+        $visitDate = Carbon::createFromFormat(
+            'Y-m-d',
+            $request->validated('visit_date'),
+            'Asia/Manila',
+        )->startOfDay();
+        $validUntil = $visitDate->copy()->endOfDay();
+        $today = Carbon::now('Asia/Manila')->toDateString();
+        $isFutureOrToday = $visitDate->toDateString() >= $today;
+
+        $updated = DB::transaction(function () use ($transaction, $validUntil, $isFutureOrToday) {
+            $ordersUpdated = $transaction->transactionOrders()
+                ->update(['valid_until' => $validUntil]);
+
+            $ticketsQuery = $transaction->tickets()
+                ->whereNull('used_at')
+                ->whereNotIn('status', [
+                    GeneralConstants::TICKET_STATUSES['TRANSFERRED'],
+                    GeneralConstants::TICKET_STATUSES['USED'],
+                    GeneralConstants::TICKET_STATUSES['CANCELLED'],
+                ]);
+
+            $ticketCount = (clone $ticketsQuery)->count();
+
+            $ticketsQuery->update(['valid_until' => $validUntil]);
+
+            if ($isFutureOrToday) {
+                $transaction->tickets()
+                    ->whereNull('used_at')
+                    ->where('status', GeneralConstants::TICKET_STATUSES['EXPIRED'])
+                    ->update(['status' => GeneralConstants::TICKET_STATUSES['ACTIVE']]);
+            } else {
+                $transaction->tickets()
+                    ->whereNull('used_at')
+                    ->where('status', GeneralConstants::TICKET_STATUSES['ACTIVE'])
+                    ->update(['status' => GeneralConstants::TICKET_STATUSES['EXPIRED']]);
+            }
+
+            return [
+                'orders' => $ordersUpdated,
+                'tickets' => $ticketCount,
+            ];
+        });
+
+        if ($updated['tickets'] === 0 && $updated['orders'] === 0) {
+            return response()->json([
+                'success' => false,
+                'message' => 'No tickets available to reschedule.',
+            ], 422);
+        }
+
+        $fresh = $this->transactionRepository->fetchOrThrowForViewer($uuid);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Visit date updated to '.$visitDate->format('M j, Y').'.',
+            'visit_date' => $visitDate->toDateString(),
+            'ticket_count' => $updated['tickets'],
+            'data' => new TransactionResource($fresh),
         ]);
     }
 

@@ -13,6 +13,7 @@ use App\Models\TicketCoupon;
 use App\Models\TicketSeat;
 use App\Models\Venue;
 use App\Models\VenueSeat;
+use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Str;
 use PHPUnit\Framework\Attributes\Test;
@@ -164,6 +165,16 @@ class ModelFilterScopesTest extends TestCase
         $this->assertTrue($target->isAvailableForVisitDate('2026-07-31'));
         $this->assertFalse($target->isAvailableForVisitDate('2026-08-01'));
         $this->assertFalse($target->isAvailableForVisitDate('2026-06-30'));
+
+        $this->assertFalse($target->isCurrentlyOnSale(Carbon::parse('2026-06-30 12:00:00')));
+        $this->assertTrue($target->isCurrentlyOnSale(Carbon::parse('2026-07-15 12:00:00')));
+        $this->assertFalse($target->isCurrentlyOnSale(Carbon::parse('2026-08-01 12:00:00')));
+        $this->assertFalse(
+            $target->isAvailableForPurchase('2026-07-15', Carbon::parse('2026-06-30 12:00:00')),
+        );
+        $this->assertTrue(
+            $target->isAvailableForPurchase('2026-07-15', Carbon::parse('2026-07-15 12:00:00')),
+        );
     }
 
     #[Test]

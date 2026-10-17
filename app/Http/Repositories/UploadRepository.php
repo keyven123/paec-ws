@@ -141,7 +141,12 @@ class UploadRepository
         ?Upload $portrait = null,
         ?Upload $featured = null,
         array $showcaseUploadUuids = [],
+        ?Upload $logo = null,
     ): void {
+        if ($logo) {
+            $this->attachUploadToModel($logo, $event, 'logo');
+        }
+
         if ($portrait) {
             $this->attachUploadToModel($portrait, $event, 'portrait');
         }

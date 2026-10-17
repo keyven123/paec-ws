@@ -142,6 +142,7 @@ class TempTransactionRepository
                 'total_amount' => $tempTransactionOrder['total_amount'],
                 'discount' => $tempTransactionOrder['discount'],
                 'valid_until' => $tempTransactionOrder['valid_until'] ?? null,
+                'visit_time' => $tempTransactionOrder['visit_time'] ?? null,
                 'seats' => $tempTransactionOrder['seats'] ?? null,
             ]);
             $createdTempTransactionOrders[] = $tempTransactionOrder;
@@ -177,6 +178,7 @@ class TempTransactionRepository
                 'total_amount' => $tempTransactionOrder['total_amount'],
                 'discount' => $tempTransactionOrder['discount'],
                 'valid_until' => $tempTransactionOrder['valid_until'] ? Carbon::parse($tempTransactionOrder['valid_until'])->endOfDay()->format('Y-m-d H:i:s') : null,
+                'visit_time' => $tempTransactionOrder['visit_time'] ?? null,
                 'seats' => $tempTransactionOrder['seats'] ?? null,
             ]);
             $updatedTempTransactionOrders[] = $tempTransactionOrder;
@@ -272,6 +274,9 @@ class TempTransactionRepository
                     if ($validUntil) {
                         $ticketData['valid_until'] = $validUntil;
                     }
+                    if (! empty($tempTransactionOrder->visit_time)) {
+                        $ticketData['visit_time'] = $tempTransactionOrder->visit_time;
+                    }
 
                     // Add other_info if available and update default fields if provided
                     if (isset($otherInfo[$otherInfoIndex]) && is_array($otherInfo[$otherInfoIndex])) {
@@ -327,6 +332,9 @@ class TempTransactionRepository
                     ];
                     if ($validUntil) {
                         $ticketData['valid_until'] = $validUntil;
+                    }
+                    if (! empty($tempTransactionOrder->visit_time)) {
+                        $ticketData['visit_time'] = $tempTransactionOrder->visit_time;
                     }
 
                     // Add other_info if available and update default fields if provided
@@ -399,6 +407,7 @@ class TempTransactionRepository
                 'discount' => $tempTransactionOrder->discount,
                 'seats' => $tempTransactionOrder->seats ?? [],
                 'valid_until' => $tempTransactionOrder->valid_until ?? null,
+                'visit_time' => $tempTransactionOrder->visit_time ?? null,
             ]);
             $transactionOrders[] = $transactionOrder;
         }

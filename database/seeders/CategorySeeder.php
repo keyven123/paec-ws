@@ -16,12 +16,28 @@ class CategorySeeder extends Seeder
      */
     public function run(): void
     {
-        //to run this seeder php artisan db:seed --class=CategorySeeder
+        // to run: php artisan db:seed --class=CategorySeeder
         DB::beginTransaction();
         $categories = $this->csvToArray(database_path('data/category.csv'));
+        $keepCodes = [];
+
         foreach ($categories as $category) {
-            Category::updateOrCreate($category, $category);
+            $keepCodes[] = $category['code'];
+            Category::withTrashed()->updateOrCreate(
+                ['code' => $category['code']],
+                [
+                    'name' => $category['name'],
+                    'type' => $category['type'],
+                    'status' => 'active',
+                    'deleted_at' => null,
+                ],
+            );
         }
+
+        Category::query()
+            ->whereNotIn('code', $keepCodes)
+            ->delete();
+
         DB::commit();
     }
 }

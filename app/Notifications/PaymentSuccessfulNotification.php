@@ -23,8 +23,10 @@ class PaymentSuccessfulNotification extends Notification implements ShouldQueue
 
     public const CONTEXT_UPGRADE = 'upgrade';
 
+    public const CONTEXT_SPONSOR = 'sponsor';
+
     /**
-     * @param  string  $context  {@see self::CONTEXT_PAYMENT} (checkout) or {@see self::CONTEXT_UPGRADE} (ticket upgrade)
+     * @param  string  $context  {@see self::CONTEXT_PAYMENT}, {@see self::CONTEXT_UPGRADE}, or {@see self::CONTEXT_SPONSOR}
      */
     public function __construct(
         public string $transactionUuid,
@@ -95,10 +97,13 @@ class PaymentSuccessfulNotification extends Notification implements ShouldQueue
             ->where('uuid', $this->transactionUuid)
             ->with([
                 'user',
+                'event.logo',
                 'event.portraitImage',
+                'event.organization',
                 'schedule',
                 'scheduleTime',
                 'transactionOrders.eventTicket',
+                'tickets.event',
                 'tickets.eventTicket',
                 'tickets.eventLocation',
                 'tickets.venueSeat.venue',
@@ -107,6 +112,12 @@ class PaymentSuccessfulNotification extends Notification implements ShouldQueue
             ->firstOrFail();
 
         $qrPng = app(TicketQrPngService::class);
+        $logoExport = app(TicketEmailExportService::class);
+        $activityLogoPath = null;
+        $activityLogoBinary = $logoExport->activityLogoBinary($transaction->event);
+        if ($activityLogoBinary !== null) {
+            $activityLogoPath = $qrPng->writeTempLogoFile($activityLogoBinary);
+        }
 
         $portraitUrl = $transaction->event?->portraitImage?->url;
         $scheduleTime = $transaction->scheduleTime;
@@ -123,19 +134,30 @@ class PaymentSuccessfulNotification extends Notification implements ShouldQueue
             'location' => $ticket->eventLocation?->displayLabel() ?? $transaction->event?->address,
             'seat' => $ticket->row !== null && $ticket->col !== null ? "{$ticket->row}-{$ticket->col}" : null,
             'raw_qr_code' => $ticket->qr_code,
-            'qr_png' => $qrPng->pngBinary($ticket->qr_code),
+            'qr_png' => $qrPng->pngBinary($ticket->qr_code, $activityLogoPath),
             'qr_cid_name' => 'qr-' . str_replace('-', '', (string) $ticket->uuid) . '.png',
         ])->all();
 
         $isUpgrade = $this->context === self::CONTEXT_UPGRADE;
+        $isSponsor = $this->context === self::CONTEXT_SPONSOR;
 
         $payload = array_merge($this->orderSummary($transaction), [
             'email_context' => $this->context,
-            'email_page_title' => $isUpgrade ? 'Ticket upgraded' : 'Booking confirmed',
-            'headline' => $isUpgrade ? 'Your ticket has been upgraded' : 'Your booking is confirmed',
-            'intro' => $isUpgrade
-                ? 'Your upgrade is complete. Your updated ticket is below and attached to this email.'
-                : 'Thank you for booking with PAEC. Your payment was received and your tickets are ready.',
+            'email_page_title' => match (true) {
+                $isSponsor => 'Sponsor tickets',
+                $isUpgrade => 'Ticket upgraded',
+                default => 'Booking confirmed',
+            },
+            'headline' => match (true) {
+                $isSponsor => 'Your sponsor tickets are ready',
+                $isUpgrade => 'Your ticket has been upgraded',
+                default => 'Your booking is confirmed',
+            },
+            'intro' => match (true) {
+                $isSponsor => 'Complimentary sponsor tickets from PAEC are attached to this email. Present the QR code at the entrance.',
+                $isUpgrade => 'Your upgrade is complete. Your updated ticket is below and attached to this email.',
+                default => 'Thank you for booking with PAEC. Your payment was received and your tickets are ready.',
+            },
             'event_image' => $portraitUrl,
             'event_portrait_embed' => $this->portraitImageForEmbed($portraitUrl),
             'event_time' => $eventTime,
@@ -144,15 +166,22 @@ class PaymentSuccessfulNotification extends Notification implements ShouldQueue
             'has_ticket_file_attachments' => false,
         ]);
 
-        $subject = $isUpgrade
-            ? "Your PAEC ticket has been upgraded – Order {$transaction->order_number}"
-            : "Your PAEC booking is confirmed – Order {$transaction->order_number}";
+        $subject = match (true) {
+            $isSponsor => "Your PAEC sponsor tickets – Order {$transaction->order_number}",
+            $isUpgrade => "Your PAEC ticket has been upgraded – Order {$transaction->order_number}",
+            default => "Your PAEC booking is confirmed – Order {$transaction->order_number}",
+        };
 
         $mail = (new MailMessage())->subject($subject);
 
         $export = app(TicketEmailExportService::class);
+        $ticketCount = max(1, $transaction->tickets->count());
+        $ticketIndex = 0;
         foreach ($transaction->tickets as $ticket) {
-            $attachment = $export->buildAttachment($transaction, $ticket);
+            $ticketIndex++;
+            $attachment = $isSponsor
+                ? $export->buildSponsorPageAttachment($transaction, $ticket, $ticketIndex, $ticketCount)
+                : $export->buildAttachment($transaction, $ticket);
             if ($attachment !== null) {
                 $mail->attachData($attachment['data'], $attachment['filename'], ['mime' => $attachment['mime']]);
                 $payload['has_ticket_file_attachments'] = true;

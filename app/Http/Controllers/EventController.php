@@ -38,6 +38,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
 class EventController extends Controller
@@ -154,9 +155,16 @@ class EventController extends Controller
         $payload = $request->validated();
         $payload['slug'] = GeneralHelper::generateSlug($payload['event_name']);
 
+        $logoImage = $request->file('logo_image');
         $portraitImage = $request->file('portrait_image');
         $featuredImage = $request->file('featured_image');
         $eventShowcase = $request->file('event_showcase');
+        if (!empty($logoImage)) {
+            $logo = $this->uploadRepository->create([
+                'file' => $logoImage,
+                'collection' => 'logo',
+            ]);
+        }
         if (!empty($portraitImage)) {
             $portrait = $this->uploadRepository->create([
                 'file' => $portraitImage,
@@ -187,6 +195,9 @@ class EventController extends Controller
                 ?? PaecOrganizationService::defaultOrganizationUuid();
         }
 
+        if (isset($logo) && !empty($logo)) {
+            $payload['logo_uuid'] = $logo->uuid;
+        }
         if (isset($portrait) && !empty($portrait)) {
             $payload['portrait_image_uuid'] = $portrait->uuid;
         }
@@ -200,6 +211,11 @@ class EventController extends Controller
             $eventSection = EventSection::where('name', EventSection::AMUSEMENT_SECTION)->first();
             $payload['event_section_uuid'] = $eventSection ? $eventSection->uuid : null;
         }
+        unset(
+            $payload['logo_image'],
+            $payload['portrait_image'],
+            $payload['featured_image'],
+        );
         $event = $this->eventRepository->create($payload);
         if (array_key_exists('payment_gateway_uuids', $payload)) {
             $event->paymentGateways()->sync($payload['payment_gateway_uuids']);
@@ -210,6 +226,7 @@ class EventController extends Controller
             $portrait ?? null,
             $featured ?? null,
             $showcaseUploads,
+            $logo ?? null,
         );
 
         $schedules = $payload['schedules'] ?? [];
@@ -375,6 +392,7 @@ class EventController extends Controller
             'eventSection',
             'organization',
             'category',
+            'logo',
             'portraitImage',
             'featuredImage',
             'eventLocations.organization',
@@ -383,6 +401,56 @@ class EventController extends Controller
                 ->select(['payment_gateways.uuid', 'name', 'provider', 'environment', 'payment_channels']),
         ]);
         return (new EventShowPublicResource($event))->response();
+    }
+
+    /**
+     * Stream the activity logo for e-ticket downloads (same-origin via Vite /api proxy).
+     */
+    public function logoPublic(string $identifier): Response|JsonResponse
+    {
+        try {
+            try {
+                $event = $this->eventRepository->fetchOrThrow('slug', $identifier);
+            } catch (NoEventFoundException) {
+                $event = $this->eventRepository->fetchOrThrow('uuid', $identifier);
+            }
+        } catch (NoEventFoundException) {
+            return response()->json(['message' => 'Event not found'], 404);
+        }
+
+        $event->load('logo');
+        if (! $event->logo || empty($event->logo->path)) {
+            return response()->json(['message' => 'Logo not found'], 404);
+        }
+
+        try {
+            $disk = Storage::disk($event->logo->disk ?: config('filesystems.default'));
+            if (! $disk->exists($event->logo->path)) {
+                return response()->json(['message' => 'Logo not found'], 404);
+            }
+
+            $binary = $disk->get($event->logo->path);
+            if (! is_string($binary) || $binary === '') {
+                return response()->json(['message' => 'Logo not found'], 404);
+            }
+
+            $mime = 'image/jpeg';
+            try {
+                $detected = $disk->mimeType($event->logo->path);
+                if (is_string($detected) && str_starts_with($detected, 'image/')) {
+                    $mime = $detected;
+                }
+            } catch (\Throwable) {
+                // keep default
+            }
+
+            return response($binary, 200, [
+                'Content-Type' => $mime,
+                'Cache-Control' => 'public, max-age=86400',
+            ]);
+        } catch (\Throwable) {
+            return response()->json(['message' => 'Logo not found'], 404);
+        }
     }
 
     /**
@@ -399,14 +467,23 @@ class EventController extends Controller
             $payload['slug'] = GeneralHelper::generateSlug($payload['slug']);
             $event = $this->eventRepository->fetchOrThrow('uuid', $uuid);
 
+            $logoImage = $request->file('logo_image');
             $portraitImage = $request->file('portrait_image');
             $featuredImage = $request->file('featured_image');
             $eventShowcase = $request->file('event_showcase');
 
+            $logo = null;
             $portrait = null;
             $featured = null;
             $newShowcaseUploads = [];
 
+            if (!empty($logoImage)) {
+                $logo = $this->uploadRepository->create([
+                    'file' => $logoImage,
+                    'collection' => 'logo',
+                ]);
+                $payload['logo_uuid'] = $logo->uuid;
+            }
             if (!empty($portraitImage)) {
                 $portrait = $this->uploadRepository->create([
                     'file' => $portraitImage,
@@ -454,7 +531,13 @@ class EventController extends Controller
                 }
             }
 
-            unset($payload['sync_event_showcase'], $payload['event_showcase_uuids']);
+            unset(
+                $payload['sync_event_showcase'],
+                $payload['event_showcase_uuids'],
+                $payload['logo_image'],
+                $payload['portrait_image'],
+                $payload['featured_image'],
+            );
 
             $this->eventRepository->update($event, $payload);
             if (array_key_exists('payment_gateway_uuids', $payload)) {
@@ -465,13 +548,14 @@ class EventController extends Controller
                 $portrait,
                 $featured,
                 $newShowcaseUploads,
+                $logo,
             );
             DB::commit();
 
             // Clear public events cache
             $this->clearPublicEventsCache();
 
-            $event->refresh()->load(['portraitImage', 'featuredImage', 'category', 'organization', 'eventSection', 'paymentGateways']);
+            $event->refresh()->load(['logo', 'portraitImage', 'featuredImage', 'category', 'organization', 'eventSection', 'paymentGateways']);
 
             return (new EventResource($event))->response();
         } catch (NoEventFoundException $e) {

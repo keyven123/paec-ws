@@ -71,6 +71,7 @@ class TicketRepository
             'transaction.scheduleTime',
             'event',
             'event.organization',
+            'event.logo',
             'event.portraitImage',
             'event.featuredImage',
             'eventLocation',
@@ -463,7 +464,7 @@ class TicketRepository
         ]);
     }
 
-    public function addTicketToUser(array $payload): bool
+    public function addTicketToUser(array $payload): Transaction
     {
         DB::beginTransaction();
         try {
@@ -515,12 +516,16 @@ class TicketRepository
                 ? null
                 : 'manual';
 
+            $orderPrefix = is_string($payload['order_prefix'] ?? null) && $payload['order_prefix'] !== ''
+                ? $payload['order_prefix']
+                : 'GIFT-';
+
             $transaction = $this->transaction->create([
                 'user_uuid' => $payload['user_uuid'],
                 'event_uuid' => $payload['event_uuid'],
                 'event_location_uuid' => $eventLocation->uuid,
                 'organization_uuid' => $organizationUuid,
-                'order_number' => GeneralHelper::generateOrderNumber('GIFT-'),
+                'order_number' => GeneralHelper::generateOrderNumber($orderPrefix),
                 'total_amount' => $lineTotal,
                 'sub_total' => $lineTotal,
                 'payment_provider' => $paymentProvider,
@@ -541,6 +546,7 @@ class TicketRepository
             ]);
 
             $ticketQrPrefix = match (true) {
+                ($payload['qr_prefix'] ?? null) === 'SPON-' => 'SPON-',
                 $payload['type'] === Ticket::TYPES['COMPLEMENTARY'] => 'CMPL-',
                 $payload['type'] === Ticket::TYPES['PAID_NR'] => 'PDNR-',
                 $payload['type'] === Ticket::TYPES['PAID_TO_MERCHANT'] => 'PTME-',
@@ -575,6 +581,7 @@ class TicketRepository
                     'type' => $payload['type'],
                     'status' => GeneralConstants::TICKET_STATUSES['ACTIVE'],
                     'visit_policy' => $eventTicket->visit_policy,
+                    'price' => $isPaidType ? $unitAmount : 0,
                     'created_by' => request()->user()->uuid,
                     'updated_by' => request()->user()->uuid,
                 ];
@@ -611,7 +618,7 @@ class TicketRepository
                 );
             }
 
-            return true;
+            return $transaction->fresh();
         } catch (\Exception $e) {
             DB::rollBack();
             throw $e;

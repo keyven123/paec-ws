@@ -98,6 +98,7 @@ Route::prefix('v1')->group(function () {
                 Route::get('/', [EventController::class, 'publicEvents']);
                 Route::get('/browse-by-city', [EventController::class, 'publicBrowseByCity']);
                 Route::get('/{uuid}', [EventController::class, 'showEventPublic']);
+                Route::get('/{uuid}/logo', [EventController::class, 'logoPublic']);
                 Route::get('/{uuid}/seats', [VenueSeatController::class, 'getVenueSeatsPublic']);
                 Route::get('/{uuid}/seats-v2', [VenueSeatController::class, 'getVenueSeatsPublicV2']);
                 Route::get('/{uuid}/schedule', [ScheduleController::class, 'getEventSchedulePublic']);

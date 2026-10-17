@@ -39,8 +39,14 @@ class EventTicket extends Model
         'bundle_tickets',
         'visit_policy',
         'validity_days',
+        'operation_days',
+        'operation_hours_from',
+        'operation_hours_to',
         'available_from',
         'available_to',
+        'feature_on_flash_sale',
+        'flash_sale_from',
+        'flash_sale_to',
         'display_order',
         'max_ticket',
         'sold_ticket',
@@ -54,6 +60,12 @@ class EventTicket extends Model
         'updated_by',
     ];
 
+    public const OPERATION_DAYS = [
+        'ANY' => 'any',
+        'WEEKDAYS' => 'weekdays',
+        'WEEKENDS' => 'weekends',
+    ];
+
     protected $casts = [
         'price' => 'decimal:2',
         'markup_value' => 'decimal:2',
@@ -63,6 +75,9 @@ class EventTicket extends Model
         'bundle_tickets' => 'array',
         'available_from' => 'datetime',
         'available_to' => 'datetime',
+        'feature_on_flash_sale' => 'boolean',
+        'flash_sale_from' => 'datetime',
+        'flash_sale_to' => 'datetime',
         'display_order' => 'integer',
         'validity_days' => 'integer',
         'max_ticket' => 'integer',
@@ -90,8 +105,14 @@ class EventTicket extends Model
         'bundle_tickets',
         'visit_policy',
         'validity_days',
+        'operation_days',
+        'operation_hours_from',
+        'operation_hours_to',
         'available_from',
         'available_to',
+        'feature_on_flash_sale',
+        'flash_sale_from',
+        'flash_sale_to',
         'display_order',
         'max_ticket',
         'sold_ticket',
@@ -159,8 +180,40 @@ class EventTicket extends Model
     }
 
     /**
+     * Whether this ticket can be purchased right now (sales window).
+     * Flash-featured tickets use flash_sale_from/to; others use available_from/to.
+     */
+    public function isCurrentlyOnSale(?Carbon $now = null): bool
+    {
+        $now = $now ?? Carbon::now((string) config('app.timezone', 'Asia/Manila'));
+
+        if ($this->feature_on_flash_sale) {
+            if ($this->flash_sale_from && $now->lt($this->flash_sale_from)) {
+                return false;
+            }
+
+            if ($this->flash_sale_to && $now->gt($this->flash_sale_to)) {
+                return false;
+            }
+
+            return true;
+        }
+
+        if ($this->available_from && $now->lt($this->available_from)) {
+            return false;
+        }
+
+        if ($this->available_to && $now->gt($this->available_to)) {
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
      * Whether this ticket can be booked for the given visit calendar day.
      * Compares date portions of available_from / available_to (inclusive).
+     * Leave those empty to allow any visit date (e.g. during a flash sale).
      */
     public function isAvailableForVisitDate(string $visitDate): bool
     {
@@ -174,7 +227,90 @@ class EventTicket extends Model
             return false;
         }
 
+        if (! $this->allowsVisitDayOfWeek($date)) {
+            return false;
+        }
+
         return true;
+    }
+
+    /**
+     * Weekday / weekend restriction from Operations settings.
+     */
+    public function allowsVisitDayOfWeek(string $visitDate): bool
+    {
+        $days = $this->operation_days ?: self::OPERATION_DAYS['ANY'];
+        if ($days === self::OPERATION_DAYS['ANY']) {
+            return true;
+        }
+
+        $dayOfWeek = Carbon::parse($visitDate, 'Asia/Manila')->dayOfWeekIso; // 1=Mon … 7=Sun
+        $isWeekend = $dayOfWeek >= 6;
+
+        if ($days === self::OPERATION_DAYS['WEEKDAYS']) {
+            return ! $isWeekend;
+        }
+
+        if ($days === self::OPERATION_DAYS['WEEKENDS']) {
+            return $isWeekend;
+        }
+
+        return true;
+    }
+
+    /**
+     * Whether a HH:MM visit time falls inside operation hours (inclusive).
+     * No hours configured → any time is allowed.
+     */
+    public function allowsVisitTime(?string $visitTime): bool
+    {
+        $from = $this->formatOperationTime($this->operation_hours_from);
+        $to = $this->formatOperationTime($this->operation_hours_to);
+
+        if (! $from && ! $to) {
+            return true;
+        }
+
+        if ($visitTime === null || $visitTime === '') {
+            return false;
+        }
+
+        $time = substr($visitTime, 0, 5);
+        if ($from && $time < $from) {
+            return false;
+        }
+        if ($to && $time > $to) {
+            return false;
+        }
+
+        return true;
+    }
+
+    public function formatOperationTime(mixed $value): ?string
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+
+        if ($value instanceof Carbon) {
+            return $value->format('H:i');
+        }
+
+        return substr((string) $value, 0, 5);
+    }
+
+    public function hasOperationHours(): bool
+    {
+        return $this->formatOperationTime($this->operation_hours_from) !== null
+            || $this->formatOperationTime($this->operation_hours_to) !== null;
+    }
+
+    /**
+     * On sale now and valid for the selected visit date.
+     */
+    public function isAvailableForPurchase(string $visitDate, ?Carbon $now = null): bool
+    {
+        return $this->isCurrentlyOnSale($now) && $this->isAvailableForVisitDate($visitDate);
     }
 
     // Relationships

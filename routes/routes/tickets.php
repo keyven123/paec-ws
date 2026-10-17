@@ -35,6 +35,9 @@ Route::group(['prefix' => 'tickets'], function () {
     Route::post('add-to-user', [TicketController::class, 'addTicketToUser'])
         ->middleware('can:tickets-add');
 
+    Route::post('send-sponsor', [TicketController::class, 'sendSponsorTickets'])
+        ->middleware('can:tickets-add');
+
     // Additional ticket-specific routes
     Route::post('{uuid}/use', [TicketController::class, 'markAsUsed'])
         ->middleware('can:tickets-update');

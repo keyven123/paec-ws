@@ -29,6 +29,7 @@ class TempTransactionOrder extends Model
         'discount',
         'total_amount',
         'valid_until',
+        'visit_time',
         'seats',
     ];
 
@@ -58,6 +59,7 @@ class TempTransactionOrder extends Model
         'discount',
         'total_amount',
         'valid_until',
+        'visit_time',
         'seats',
     ];
 

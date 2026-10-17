@@ -97,6 +97,10 @@ class TicketResource extends JsonResource
                     'description' => $this->event->event_description,
                     'address' => $this->event->address,
                     'other_info_deadline' => $this->event->other_info_deadline?->format('Y-m-d H:i:s'),
+                    'logo' => $this->event->logo ? [
+                        'path' => $this->event->logo->path,
+                        'url' => $this->event->logo->url,
+                    ] : null,
                     'portrait' => $this->event->portraitImage ? [
                         'path' => $this->event->portraitImage->path,
                         'url' => $this->event->portraitImage->url,

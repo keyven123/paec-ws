@@ -170,6 +170,22 @@ class CartCheckoutTest extends TestCase
     }
 
     #[Test]
+    public function cart_rejects_tickets_outside_their_sales_window(): void
+    {
+        $this->arcadePass->update([
+            'available_from' => now()->addDay()->startOfHour()->toDateTimeString(),
+            'available_to' => now()->addDays(2)->endOfDay()->toDateTimeString(),
+        ]);
+
+        $this->actingAs($this->customer, 'api')
+            ->postJson(self::CART . '/items', $this->itemPayload($this->arcadePass, 1, [
+                'visit_date' => now()->addDays(2)->toDateString(),
+            ]))
+            ->assertStatus(422)
+            ->assertJsonValidationErrors(['tickets.0.event_ticket_uuid']);
+    }
+
+    #[Test]
     public function adding_an_activity_keeps_its_tickets_and_restarts_the_reminder_wait(): void
     {
         $this->addToCart($this->arcadePass);

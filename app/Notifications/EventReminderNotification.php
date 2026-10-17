@@ -56,6 +56,7 @@ class EventReminderNotification extends Notification implements ShouldQueue
         $transactions = Transaction::query()
             ->whereIn('uuid', $this->transactionUuids)
             ->with([
+                'event.logo',
                 'event.portraitImage',
                 'event.venue',
                 'schedule',
@@ -74,15 +75,21 @@ class EventReminderNotification extends Notification implements ShouldQueue
         $includeQrInline = $includeAttachments;
 
         $qrPng = app(TicketQrPngService::class);
+        $logoExport = app(TicketEmailExportService::class);
+        $activityLogoPath = null;
+        $activityLogoBinary = $logoExport->activityLogoBinary($transaction->event);
+        if ($activityLogoBinary !== null) {
+            $activityLogoPath = $qrPng->writeTempLogoFile($activityLogoBinary);
+        }
 
         $portraitUrl = $transaction->event?->portraitImage?->url;
         $eventPortraitEmbed = $this->portraitImageForEmbed($portraitUrl);
 
-        $tickets = $transactions->flatMap(function (Transaction $ticketTransaction) use ($qrPng, $includeQrInline) {
-            return $this->activeTickets($ticketTransaction)->map(function ($ticket) use ($ticketTransaction, $qrPng, $includeQrInline) {
+        $tickets = $transactions->flatMap(function (Transaction $ticketTransaction) use ($qrPng, $includeQrInline, $activityLogoPath) {
+            return $this->activeTickets($ticketTransaction)->map(function ($ticket) use ($ticketTransaction, $qrPng, $includeQrInline, $activityLogoPath) {
                 $qrBinary = null;
                 if ($includeQrInline && ! empty($ticket->qr_code)) {
-                    $qrBinary = $qrPng->pngBinary($ticket->qr_code);
+                    $qrBinary = $qrPng->pngBinary($ticket->qr_code, $activityLogoPath);
                 }
 
                 return [

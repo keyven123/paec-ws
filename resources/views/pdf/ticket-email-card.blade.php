@@ -20,7 +20,8 @@
         <td style="width:190pt; vertical-align:top; padding:16pt 14pt; background:#faf5ff; border-right:1px solid #ede9fe;">
             @if (! empty($siteLogoDataUri))
                 <div style="text-align:center; margin-bottom:10pt;">
-                    <img src="{{ $siteLogoDataUri }}" alt="PAEC" style="width:120pt; height:auto;">
+                    {{-- file:// / drive paths must not be HTML-escaped or Dompdf drops the image --}}
+                    <img src="{!! $siteLogoDataUri !!}" alt="Logo" style="width:120pt; height:auto; max-height:48pt;">
                 </div>
             @endif
             <div style="height:150pt; border-radius:10pt; overflow:hidden; background:#ede9fe; text-align:center;">
