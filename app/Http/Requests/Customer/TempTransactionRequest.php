@@ -127,11 +127,7 @@ class TempTransactionRequest extends FormRequest
                 if ($eventTicket && !$eventTicket->isAvailableForPurchase($visitDate)) {
                     $name = $eventTicket->name ?: 'This ticket';
                     $dayMsg = ! $eventTicket->allowsVisitDayOfWeek($visitDate)
-                        ? ($eventTicket->operation_days === 'weekdays'
-                            ? "{$name} is available on weekdays only."
-                            : ($eventTicket->operation_days === 'weekends'
-                                ? "{$name} is available on weekends only."
-                                : "{$name} is unavailable for the selected date of visit."))
+                        ? $eventTicket->visitDayUnavailableMessage($visitDate, $name)
                         : ($eventTicket->isCurrentlyOnSale()
                             ? "{$name} is unavailable for the selected date of visit."
                             : "{$name} is not available for purchase at this time.");

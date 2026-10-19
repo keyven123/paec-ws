@@ -29,6 +29,11 @@ class CreateEventRequest extends FormRequest
                 'uuid',
                 'exists:venues,uuid',
                 Rule::requiredIf(function () {
+                    // Fun / open-ticket activities may be daily or a single-date event without a venue.
+                    if ($this->input('event_config') === Event::EVENT_CONFIGS['OPEN_TICKET']) {
+                        return false;
+                    }
+
                     return $this->input('event_type') != Event::EVENT_TYPES['DAILY'];
                 })
             ],
@@ -43,6 +48,10 @@ class CreateEventRequest extends FormRequest
                 'uuid',
                 'exists:event_sections,uuid',
                 Rule::requiredIf(function () {
+                    if ($this->input('event_config') === Event::EVENT_CONFIGS['OPEN_TICKET']) {
+                        return false;
+                    }
+
                     return $this->input('event_type') != Event::EVENT_TYPES['DAILY'];
                 })
             ],
@@ -69,17 +78,29 @@ class CreateEventRequest extends FormRequest
                     return $this->input('event_type') != Event::EVENT_TYPES['DAILY'];
                 })
             ],
-            'schedules.*.date_from' => ['nullable', 'date'],
-            'schedules.*.date_to' => ['nullable', 'date', 'after_or_equal:date_from'],
+            'schedules.*.date_from' => ['required_with:schedules', 'date'],
+            'schedules.*.date_to' => [
+                'required_with:schedules',
+                'date',
+                'after_or_equal:schedules.*.date_from',
+            ],
             'schedules.*.status' => ['nullable', Rule::in(array_values(GeneralConstants::SCHEDULE_STATUSES))],
-            'schedules.*.time' => ['nullable', 'array'],
-            'schedules.*.time.*.time_start' => ['nullable', 'date_format:H:i:s'],
-            'schedules.*.time.*.time_end' => ['nullable', 'date_format:H:i:s', 'after_or_equal:time_start'],
+            'schedules.*.time' => ['required_with:schedules', 'array', 'min:1'],
+            'schedules.*.time.*.time_start' => ['required', 'date_format:H:i:s'],
+            'schedules.*.time.*.time_end' => [
+                'required',
+                'date_format:H:i:s',
+                'after_or_equal:schedules.*.time.*.time_start',
+            ],
             'schedules.*.time.*.status' => ['nullable', Rule::in(array_values(GeneralConstants::SCHEDULE_STATUSES))],
             'ticket_available_from' => [
                 'nullable',
                 'date',
                 Rule::requiredIf(function () use ($openPassEventSection) {
+                    if ($this->input('event_config') === Event::EVENT_CONFIGS['OPEN_TICKET']) {
+                        return false;
+                    }
+
                     return !empty($this->input('tickets'))
                         && $this->input('event_type') !== 'daily'
                         && $openPassEventSection
@@ -91,6 +112,10 @@ class CreateEventRequest extends FormRequest
                 'date',
                 'after_or_equal:ticket_available_from',
                 Rule::requiredIf(function () use ($openPassEventSection) {
+                    if ($this->input('event_config') === Event::EVENT_CONFIGS['OPEN_TICKET']) {
+                        return false;
+                    }
+
                     return !empty($this->input('tickets'))
                         && $this->input('event_type') !== 'daily'
                         && $openPassEventSection

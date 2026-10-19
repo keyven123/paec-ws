@@ -50,6 +50,9 @@ class EventTicketPublicResource extends JsonResource
             'flash_sale_from' => $this->flash_sale_from?->format('Y-m-d H:i:s'),
             'flash_sale_to' => $this->flash_sale_to?->format('Y-m-d H:i:s'),
             'operation_days' => $this->operation_days ?: 'any',
+            'operation_custom_days' => $this->operation_days === 'custom'
+                ? ($this->operation_custom_days ?? [])
+                : [],
             'operation_hours_from' => $this->formatOperationTime($this->operation_hours_from),
             'operation_hours_to' => $this->formatOperationTime($this->operation_hours_to),
             'bg_color' => $this->bg_color,

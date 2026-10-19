@@ -40,6 +40,7 @@ class EventTicket extends Model
         'visit_policy',
         'validity_days',
         'operation_days',
+        'operation_custom_days',
         'operation_hours_from',
         'operation_hours_to',
         'available_from',
@@ -64,6 +65,28 @@ class EventTicket extends Model
         'ANY' => 'any',
         'WEEKDAYS' => 'weekdays',
         'WEEKENDS' => 'weekends',
+        'CUSTOM' => 'custom',
+    ];
+
+    /** ISO weekday keys used in operation_custom_days (1=Mon … 7=Sun). */
+    public const OPERATION_WEEKDAY_KEYS = [
+        1 => 'mon',
+        2 => 'tue',
+        3 => 'wed',
+        4 => 'thu',
+        5 => 'fri',
+        6 => 'sat',
+        7 => 'sun',
+    ];
+
+    public const OPERATION_WEEKDAY_LABELS = [
+        'mon' => 'Monday',
+        'tue' => 'Tuesday',
+        'wed' => 'Wednesday',
+        'thu' => 'Thursday',
+        'fri' => 'Friday',
+        'sat' => 'Saturday',
+        'sun' => 'Sunday',
     ];
 
     protected $casts = [
@@ -73,6 +96,7 @@ class EventTicket extends Model
         'is_bundle' => 'boolean',
         'bundle_quantity' => 'integer',
         'bundle_tickets' => 'array',
+        'operation_custom_days' => 'array',
         'available_from' => 'datetime',
         'available_to' => 'datetime',
         'feature_on_flash_sale' => 'boolean',
@@ -106,6 +130,7 @@ class EventTicket extends Model
         'visit_policy',
         'validity_days',
         'operation_days',
+        'operation_custom_days',
         'operation_hours_from',
         'operation_hours_to',
         'available_from',
@@ -235,7 +260,7 @@ class EventTicket extends Model
     }
 
     /**
-     * Weekday / weekend restriction from Operations settings.
+     * Weekday / weekend / custom-day restriction from Operations settings.
      */
     public function allowsVisitDayOfWeek(string $visitDate): bool
     {
@@ -255,7 +280,59 @@ class EventTicket extends Model
             return $isWeekend;
         }
 
+        if ($days === self::OPERATION_DAYS['CUSTOM']) {
+            $allowed = $this->normalizedCustomDays();
+            if ($allowed === []) {
+                return false;
+            }
+            $key = self::OPERATION_WEEKDAY_KEYS[$dayOfWeek] ?? null;
+
+            return $key !== null && in_array($key, $allowed, true);
+        }
+
         return true;
+    }
+
+    /**
+     * @return list<string>
+     */
+    public function normalizedCustomDays(): array
+    {
+        $raw = $this->operation_custom_days;
+        if (! is_array($raw)) {
+            return [];
+        }
+
+        $valid = array_values(self::OPERATION_WEEKDAY_KEYS);
+
+        return array_values(array_unique(array_filter(
+            array_map(static fn ($day) => strtolower(trim((string) $day)), $raw),
+            static fn (string $day) => in_array($day, $valid, true),
+        )));
+    }
+
+    public function visitDayUnavailableMessage(string $visitDate, ?string $ticketName = null): string
+    {
+        $name = $ticketName ?: ($this->name ?: 'This ticket');
+        $mode = $this->operation_days ?: self::OPERATION_DAYS['ANY'];
+
+        if ($mode === self::OPERATION_DAYS['WEEKDAYS']) {
+            return "{$name} is available on weekdays only.";
+        }
+
+        if ($mode === self::OPERATION_DAYS['WEEKENDS']) {
+            return "{$name} is available on weekends only.";
+        }
+
+        if ($mode === self::OPERATION_DAYS['CUSTOM']) {
+            $dayOfWeek = Carbon::parse($visitDate, 'Asia/Manila')->dayOfWeekIso;
+            $key = self::OPERATION_WEEKDAY_KEYS[$dayOfWeek] ?? null;
+            $label = $key ? (self::OPERATION_WEEKDAY_LABELS[$key] ?? $key) : 'this day';
+
+            return "{$name} is not available on {$label}.";
+        }
+
+        return "{$name} is unavailable for the selected date of visit.";
     }
 
     /**

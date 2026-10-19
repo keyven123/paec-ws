@@ -207,7 +207,11 @@ class EventController extends Controller
         if (isset($showcaseUploads) && !empty($showcaseUploads)) {
             $payload['event_showcase'] = $showcaseUploads;
         }
-        if ($payload['event_type'] == Event::EVENT_TYPES['DAILY']) {
+        // Fun / open-ticket activities (daily or single-date) use the amusements section.
+        if (
+            ($payload['event_type'] ?? null) === Event::EVENT_TYPES['DAILY']
+            || ($payload['event_config'] ?? null) === Event::EVENT_CONFIGS['OPEN_TICKET']
+        ) {
             $eventSection = EventSection::where('name', EventSection::AMUSEMENT_SECTION)->first();
             $payload['event_section_uuid'] = $eventSection ? $eventSection->uuid : null;
         }
@@ -237,11 +241,11 @@ class EventController extends Controller
                     'date_to' => $schedule['date_to'],
                     'status' => $schedule['status'],
                 ]);
-                foreach ($schedule['time'] as $time) {
+                foreach ($schedule['time'] ?? [] as $time) {
                     $scheduleTime = $sched->scheduleTimes()->create([
                         'time_start' => $time['time_start'],
                         'time_end' => $time['time_end'],
-                        'status' => $time['status'],
+                        'status' => $time['status'] ?? GeneralConstants::SCHEDULE_STATUSES['PUBLISHED'],
                     ]);
 
                     $tickets = $payload['tickets'] ?? [];
@@ -395,6 +399,7 @@ class EventController extends Controller
             'logo',
             'portraitImage',
             'featuredImage',
+            'schedules.scheduleTimes',
             'eventLocations.organization',
             'paymentGateways' => fn ($query) => $query
                 ->where('status', GeneralConstants::GENERAL_STATUSES['ACTIVE'])
@@ -531,17 +536,22 @@ class EventController extends Controller
                 }
             }
 
+            $schedules = $payload['schedules'] ?? null;
             unset(
                 $payload['sync_event_showcase'],
                 $payload['event_showcase_uuids'],
                 $payload['logo_image'],
                 $payload['portrait_image'],
                 $payload['featured_image'],
+                $payload['schedules'],
             );
 
             $this->eventRepository->update($event, $payload);
             if (array_key_exists('payment_gateway_uuids', $payload)) {
                 $event->paymentGateways()->sync($payload['payment_gateway_uuids']);
+            }
+            if (is_array($schedules)) {
+                $this->syncEventSchedules($event, $schedules);
             }
             $this->uploadRepository->attachEventUploads(
                 $event->fresh(),
@@ -555,7 +565,16 @@ class EventController extends Controller
             // Clear public events cache
             $this->clearPublicEventsCache();
 
-            $event->refresh()->load(['logo', 'portraitImage', 'featuredImage', 'category', 'organization', 'eventSection', 'paymentGateways']);
+            $event->refresh()->load([
+                'logo',
+                'portraitImage',
+                'featuredImage',
+                'category',
+                'organization',
+                'eventSection',
+                'paymentGateways',
+                'schedules.scheduleTimes',
+            ]);
 
             return (new EventResource($event))->response();
         } catch (NoEventFoundException $e) {
@@ -1232,5 +1251,62 @@ class EventController extends Controller
                 'uploadable_uuid' => null,
                 'collection' => null,
             ]);
+    }
+
+    /**
+     * Upsert the first (single-event) schedule + time window for fun activities.
+     *
+     * @param  array<int, array<string, mixed>>  $schedules
+     */
+    private function syncEventSchedules(Event $event, array $schedules): void
+    {
+        if ($schedules === []) {
+            return;
+        }
+
+        $schedulePayload = $schedules[0];
+        $status = $schedulePayload['status']
+            ?? GeneralConstants::SCHEDULE_STATUSES['PUBLISHED'];
+
+        $schedule = $event->schedules()->first();
+        if ($schedule) {
+            $schedule->update([
+                'date_from' => $schedulePayload['date_from'],
+                'date_to' => $schedulePayload['date_to'],
+                'status' => $status,
+            ]);
+        } else {
+            $schedule = $event->schedules()->create([
+                'date_from' => $schedulePayload['date_from'],
+                'date_to' => $schedulePayload['date_to'],
+                'status' => $status,
+            ]);
+        }
+
+        $times = $schedulePayload['time'] ?? [];
+        if ($times === []) {
+            return;
+        }
+
+        $timePayload = $times[0];
+        $timeStatus = $timePayload['status']
+            ?? GeneralConstants::SCHEDULE_STATUSES['PUBLISHED'];
+        $scheduleTime = $schedule->scheduleTimes()->first();
+
+        if ($scheduleTime) {
+            $scheduleTime->update([
+                'time_start' => $timePayload['time_start'],
+                'time_end' => $timePayload['time_end'],
+                'status' => $timeStatus,
+            ]);
+
+            return;
+        }
+
+        $schedule->scheduleTimes()->create([
+            'time_start' => $timePayload['time_start'],
+            'time_end' => $timePayload['time_end'],
+            'status' => $timeStatus,
+        ]);
     }
 }
