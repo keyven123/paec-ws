@@ -60,6 +60,25 @@ class DatasetSeeder extends Seeder
         );
 
         Dataset::firstOrCreate(
+            ['name' => 'paynamics_payment_rates'],
+            [
+                'description' => 'Paynamics payment channel deduction rates for Finance',
+                'value' => json_encode([
+                    ['name' => 'card', 'value' => ['fee_mode' => 'percentage', 'percentage' => null, 'fixed_fee' => null]],
+                    ['name' => 'gcash', 'value' => ['fee_mode' => 'higher_of', 'percentage' => 2.5, 'fixed_fee' => 20]],
+                    ['name' => 'maya', 'value' => ['fee_mode' => 'higher_of', 'percentage' => 2.5, 'fixed_fee' => 25]],
+                    ['name' => 'grabpay', 'value' => ['fee_mode' => 'higher_of', 'percentage' => 2.0, 'fixed_fee' => 25]],
+                    ['name' => 'shopeepay', 'value' => ['fee_mode' => 'percentage', 'percentage' => null, 'fixed_fee' => null]],
+                    ['name' => 'bdo', 'value' => ['fee_mode' => 'higher_of', 'percentage' => 2.0, 'fixed_fee' => 20]],
+                    ['name' => 'bpi', 'value' => ['fee_mode' => 'higher_of', 'percentage' => 2.0, 'fixed_fee' => 20]],
+                    ['name' => 'landbank', 'value' => ['fee_mode' => 'percentage', 'percentage' => null, 'fixed_fee' => null]],
+                    ['name' => 'unionbank', 'value' => ['fee_mode' => 'higher_of', 'percentage' => 2.0, 'fixed_fee' => 20]],
+                    ['name' => 'billease', 'value' => ['fee_mode' => 'percentage', 'percentage' => null, 'fixed_fee' => null]],
+                ]),
+            ],
+        );
+
+        Dataset::firstOrCreate(
             ['name' => 'activity_compliance'],
             [
                 'description' => 'Compliance taxes and fees',

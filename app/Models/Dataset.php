@@ -138,4 +138,35 @@ class Dataset extends Model
 
         return $result;
     }
+
+    /**
+     * Paynamics channel fees keyed by channel (gcash, bdo, …).
+     *
+     * @return array<string, array{fee_mode: string, percentage: float|null, fixed_fee: float|null}>
+     */
+    public static function paynamicsRates(): array
+    {
+        $raw = static::where('name', 'paynamics_payment_rates')->value('value');
+        if (! $raw) {
+            return [];
+        }
+        $items = json_decode($raw, true);
+        if (! is_array($items)) {
+            return [];
+        }
+
+        $result = [];
+        foreach ($items as $item) {
+            if (! is_array($item) || ! isset($item['name'])) {
+                continue;
+            }
+            $value = $item['value'] ?? null;
+            $result[(string) $item['name']] = \App\Support\PaymentChannelFee::normalize(
+                is_array($value) ? $value : null,
+                \App\Support\PaymentChannelFee::MODE_HIGHER_OF
+            );
+        }
+
+        return $result;
+    }
 }
