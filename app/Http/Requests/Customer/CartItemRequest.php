@@ -107,11 +107,7 @@ class CartItemRequest extends FormRequest
                 if (! $eventTicket->isAvailableForVisitDate($visitDate)) {
                     $name = $eventTicket->name ?: 'This ticket';
                     $msg = ! $eventTicket->allowsVisitDayOfWeek($visitDate)
-                        ? ($eventTicket->operation_days === 'weekdays'
-                            ? "{$name} is available on weekdays only."
-                            : ($eventTicket->operation_days === 'weekends'
-                                ? "{$name} is available on weekends only."
-                                : "{$name} is unavailable for the selected date of visit."))
+                        ? $eventTicket->visitDayUnavailableMessage($visitDate, $name)
                         : "{$name} is unavailable for the selected date of visit.";
                     $validator->errors()->add("tickets.{$index}.event_ticket_uuid", $msg);
                 }

@@ -34,6 +34,11 @@ class UpdateEventRequest extends FormRequest
                 'uuid',
                 'exists:venues,uuid',
                 Rule::requiredIf(function () {
+                    // Fun / open-ticket activities use city + address, not a venue.
+                    if ($this->input('event_config') === Event::EVENT_CONFIGS['OPEN_TICKET']) {
+                        return false;
+                    }
+
                     return $this->input('event_type') != Event::EVENT_TYPES['DAILY'];
                 })],
             // Optional on update — prepareForValidation fills it from the event / default org
@@ -49,6 +54,10 @@ class UpdateEventRequest extends FormRequest
                 'uuid',
                 'exists:event_sections,uuid',
                 Rule::requiredIf(function () {
+                    if ($this->input('event_config') === Event::EVENT_CONFIGS['OPEN_TICKET']) {
+                        return false;
+                    }
+
                     return $this->input('event_type') != Event::EVENT_TYPES['DAILY'];
                 })
             ],
@@ -79,6 +88,40 @@ class UpdateEventRequest extends FormRequest
             'event_showcase_uuids.*' => ['uuid'],
             'event_config' => ['nullable', '', 'string', Rule::in(array_values(Event::EVENT_CONFIGS))],
             'event_type' => ['required', Rule::in(array_values(Event::EVENT_TYPES))],
+            'schedule_type' => ['nullable', Rule::in(array_values(Event::SCHEDULE_TYPES))],
+            'schedules' => [
+                'nullable',
+                'array',
+                Rule::requiredIf(function () {
+                    if ($this->input('event_config') === Event::EVENT_CONFIGS['OPEN_TICKET']
+                        && $this->input('event_type') === Event::EVENT_TYPES['SINGLE']) {
+                        return true;
+                    }
+
+                    return false;
+                }),
+            ],
+            'schedules.*.date_from' => ['required_with:schedules', 'date'],
+            'schedules.*.date_to' => [
+                'required_with:schedules',
+                'date',
+                'after_or_equal:schedules.*.date_from',
+            ],
+            'schedules.*.status' => [
+                'nullable',
+                Rule::in(array_values(GeneralConstants::SCHEDULE_STATUSES)),
+            ],
+            'schedules.*.time' => ['required_with:schedules', 'array', 'min:1'],
+            'schedules.*.time.*.time_start' => ['required', 'date_format:H:i:s'],
+            'schedules.*.time.*.time_end' => [
+                'required',
+                'date_format:H:i:s',
+                'after_or_equal:schedules.*.time.*.time_start',
+            ],
+            'schedules.*.time.*.status' => [
+                'nullable',
+                Rule::in(array_values(GeneralConstants::SCHEDULE_STATUSES)),
+            ],
             'status' => ['nullable', Rule::in(array_values(GeneralConstants::EVENT_STATUSES))],
             'meta_title' => ['nullable', 'string', 'max:255'],
             'meta_description' => ['nullable', 'string'],

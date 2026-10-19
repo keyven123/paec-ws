@@ -50,6 +50,22 @@ class EventShowPublicResource extends JsonResource
             }),
             'event_type' => $this->event_type,
             'schedule_type' => $this->schedule_type,
+            'schedules' => $this->whenLoaded('schedules', function () {
+                return $this->schedules->map(function ($schedule) {
+                    return [
+                        'uuid' => $schedule->uuid,
+                        'date_from' => $schedule->date_from?->format('Y-m-d'),
+                        'date_to' => $schedule->date_to?->format('Y-m-d'),
+                        'schedule_times' => $schedule->scheduleTimes->map(function ($scheduleTime) {
+                            return [
+                                'uuid' => $scheduleTime->uuid,
+                                'time_start' => $scheduleTime->time_start,
+                                'time_end' => $scheduleTime->time_end,
+                            ];
+                        })->values(),
+                    ];
+                })->values();
+            }),
             'excluded_dates' => $this->excluded_dates,
             'track_event_meta' => $this->track_event_meta,
             'meta_pixel_id' => $this->meta_pixel_id,

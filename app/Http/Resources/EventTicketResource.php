@@ -38,6 +38,9 @@ class EventTicketResource extends JsonResource
             'visit_policy' => $this->visit_policy,
             'validity_days' => $this->validity_days,
             'operation_days' => $this->operation_days ?: 'any',
+            'operation_custom_days' => $this->operation_days === 'custom'
+                ? ($this->operation_custom_days ?? [])
+                : [],
             'operation_hours_from' => $this->formatOperationTime($this->operation_hours_from),
             'operation_hours_to' => $this->formatOperationTime($this->operation_hours_to),
             'bg_color' => $this->bg_color,

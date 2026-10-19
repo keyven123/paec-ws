@@ -88,7 +88,9 @@ class CreateEventTicketRequest extends FormRequest
             })],
             'visit_policy' => ['nullable', 'string', Rule::in(['priority', 'flexible'])],
             'validity_days' => ['nullable', 'integer', 'min:1'],
-            'operation_days' => ['nullable', 'string', Rule::in(['any', 'weekdays', 'weekends'])],
+            'operation_days' => ['nullable', 'string', Rule::in(['any', 'weekdays', 'weekends', 'custom'])],
+            'operation_custom_days' => ['nullable', 'array'],
+            'operation_custom_days.*' => ['string', Rule::in(['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'])],
             'operation_hours_from' => ['nullable', 'date_format:H:i'],
             'operation_hours_to' => [
                 'nullable',
@@ -119,7 +121,24 @@ class CreateEventTicketRequest extends FormRequest
                     $validator->errors()->add('validity_days', 'Number of days is required when visit policy is Flexible Access.');
                 }
             }
+
+            if (($this->input('operation_days') ?? null) === 'custom') {
+                $customDays = $this->input('operation_custom_days');
+                if (! is_array($customDays) || count($customDays) < 1) {
+                    $validator->errors()->add(
+                        'operation_custom_days',
+                        'Select at least one available day for custom operations.',
+                    );
+                }
+            }
         });
+    }
+
+    protected function prepareForValidation(): void
+    {
+        if (($this->input('operation_days') ?? null) !== 'custom') {
+            $this->merge(['operation_custom_days' => null]);
+        }
     }
 
     /**
