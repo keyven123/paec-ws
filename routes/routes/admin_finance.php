@@ -1,12 +1,18 @@
 <?php
 
 use App\Http\Controllers\AdminCommissionLedgerController;
-use App\Http\Controllers\AdminPlatformPnLController;
 use App\Http\Controllers\AdminOperatorConsoleController;
+use App\Http\Controllers\AdminPlatformPnLController;
 use App\Http\Controllers\AdminTransactionPnLController;
+use App\Http\Controllers\PaymentGatewayRateSettingController;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('admin/finance')->group(function () {
+    Route::get('payment-channel-rates', [PaymentGatewayRateSettingController::class, 'show'])
+        ->middleware('can:finance-view');
+    Route::put('payment-channel-rates', [PaymentGatewayRateSettingController::class, 'update'])
+        ->middleware('can:finance-view');
+
     Route::get('/platform-pnl', [AdminPlatformPnLController::class, 'show'])
         ->middleware('can:finance-view');
     Route::get('/commission-ledger', [AdminCommissionLedgerController::class, 'show'])

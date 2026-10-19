@@ -155,13 +155,15 @@ class TransactionCommissionService
 
         $paymongoRates = Dataset::paymongoRates();
         $paypalRates = Dataset::paypalRates();
+        $paynamicsRates = Dataset::paynamicsRates();
 
         [$gatewayPercentRate, $gatewayFixed, $gatewayCommission, $methodKey] = $this->resolveGatewayBreakdown(
             $transaction,
             $provider,
             $gross,
             $paymongoRates,
-            $paypalRates
+            $paypalRates,
+            $paynamicsRates
         );
 
         // Organizer's net payable for this txn.
@@ -197,6 +199,7 @@ class TransactionCommissionService
             'metadata' => [
                 'paymongo_rates' => $paymongoRates,
                 'paypal_rates' => $paypalRates,
+                'paynamics_rates' => $paynamicsRates,
                 'organization_commission_source' => $organization?->commission_percentage !== null
                     ? 'organization.commission_percentage'
                     : 'datasets.merchant_commission_percentage',
@@ -212,8 +215,9 @@ class TransactionCommissionService
      *
      * methodKey is null for PayPal (no per-method split).
      *
-     * @param  array<string, float|null>  $paymongoRates  keyed by dataset name (e.g. 'qrph', 'card', 'gcash', 'dob', 'brankas')
-     * @param  array<string, float|null>  $paypalRates    keyed by dataset name (e.g. 'paypal_fee', 'additional_fee')
+     * @param  array<string, float|null>  $paymongoRates
+     * @param  array<string, float|null>  $paypalRates
+     * @param  array<string, array{fee_mode: string, percentage: float|null, fixed_fee: float|null}>  $paynamicsRates
      * @return array{0: float, 1: float, 2: float, 3: ?string}
      */
     private function resolveGatewayBreakdown(
@@ -221,7 +225,8 @@ class TransactionCommissionService
         string $provider,
         float $gross,
         array $paymongoRates,
-        array $paypalRates
+        array $paypalRates,
+        array $paynamicsRates = []
     ): array {
         if ($provider === 'paypal') {
             $percentRate = (float) ($paypalRates['paypal_fee'] ?? 0.0);
@@ -254,7 +259,48 @@ class TransactionCommissionService
             return [$percentRate, 0.0, $percentAmount, $methodKey];
         }
 
+        if ($provider === 'paynamics') {
+            $methodKey = $this->resolvePaynamicsChannelKey($transaction);
+            if ($methodKey === null || ! isset($paynamicsRates[$methodKey])) {
+                return [0.0, 0.0, 0.0, $methodKey];
+            }
+
+            [$percentRate, $fixed, $percentAmount] = \App\Support\PaymentChannelFee::breakdown(
+                $paynamicsRates[$methodKey],
+                $gross
+            );
+
+            return [$percentRate, $fixed, $percentAmount, $methodKey];
+        }
+
         return [0.0, 0.0, 0.0, null];
+    }
+
+    private function resolvePaynamicsChannelKey(Transaction $transaction): ?string
+    {
+        $data = $transaction->payment_data;
+        if (! is_array($data)) {
+            return null;
+        }
+
+        $candidates = [
+            data_get($data, 'payment_channel'),
+            data_get($data, 'channel'),
+            data_get($data, 'pchannel'),
+            data_get($data, 'request.payment_channel'),
+        ];
+
+        foreach ($candidates as $value) {
+            if (! is_string($value) || $value === '') {
+                continue;
+            }
+            $key = strtolower(trim($value));
+            if (array_key_exists($key, \App\Services\Payments\PaynamicsService::CHANNELS)) {
+                return $key;
+            }
+        }
+
+        return null;
     }
 
     /**

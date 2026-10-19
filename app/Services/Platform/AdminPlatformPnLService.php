@@ -2,8 +2,11 @@
 
 namespace App\Services\Platform;
 
+use App\Constants\GeneralConstants;
+use App\Http\Repositories\PaymentGatewayRateSettingRepository;
 use App\Models\Dataset;
 use App\Models\Organization;
+use App\Models\PaymentGateway;
 use App\Models\Transaction;
 use App\Models\TransactionCommission;
 use App\Services\AffiliateCommissionAvailabilityService;
@@ -30,7 +33,11 @@ class AdminPlatformPnLService
         'brankas',
     ];
 
-    public function __construct() {}
+    public function __construct(
+        protected ?PaymentGatewayRateSettingRepository $rateSettingRepository = null
+    ) {
+        $this->rateSettingRepository ??= app(PaymentGatewayRateSettingRepository::class);
+    }
 
     public const PERIOD_DAILY = 'daily';
 
@@ -87,17 +94,10 @@ class AdminPlatformPnLService
         $avgMerchantPctCur = $this->averageAllMerchantsEffectiveCommissionPercent($platformDefault);
 
         $momGmv = $this->percentChange($prev['gross_sales_gmv'], $cur['gross_sales_gmv']);
-        $momCommission = $this->percentChange($prev['commission_revenue'], $cur['commission_revenue']);
-        $momTaxAndFees = $this->percentChange($prev['tax_and_fees'], $cur['tax_and_fees']);
-        $momMargin = $this->percentChange($prev['contribution_margin'], $cur['contribution_margin']);
-
-        $effectiveOnGmv = $cur['gross_sales_gmv'] > 0
-            ? round($cur['commission_revenue'] / $cur['gross_sales_gmv'] * 100.0, 2)
-            : 0.0;
-
-        $marginPctOfRevenue = $cur['commission_revenue'] > 0
-            ? round($cur['contribution_margin'] / $cur['commission_revenue'] * 100.0, 1)
-            : 0.0;
+        $momRefunds = $this->percentChange($prev['refunds'], $cur['refunds']);
+        $momChargebacks = $this->percentChange($prev['chargebacks'], $cur['chargebacks']);
+        $momNetSales = $this->percentChange($prev['net_sales'], $cur['net_sales']);
+        $momNetGmv = $this->percentChange($prev['net_gmv'], $cur['net_gmv']);
 
         $periodGmv = round($cur['gross_sales_gmv'], 2);
 
@@ -123,16 +123,40 @@ class AdminPlatformPnLService
                 'gross_sales_gmv' => $periodGmv,
                 /** @deprecated Use gross_sales_gmv (period total). Kept for older clients. */
                 'gross_sales_gmv_as_of_today' => $periodGmv,
+                'refunds' => round($cur['refunds'], 2),
+                'chargebacks' => round($cur['chargebacks'], 2),
+                'gateway_fees' => round($cur['gateway_fees_visible'] ?? $cur['gateway_fees'], 2),
+                'net_gmv' => round($cur['net_gmv'], 2),
+                'net_sales' => round($cur['net_sales'], 2),
+                'mom_gross_sales_gmv_pct' => $momGmv,
+                'mom_refunds_pct' => $momRefunds,
+                'mom_chargebacks_pct' => $momChargebacks,
+                'mom_gateway_fees_pct' => $this->percentChange(
+                    (float) ($prev['gateway_fees_visible'] ?? $prev['gateway_fees']),
+                    (float) ($cur['gateway_fees_visible'] ?? $cur['gateway_fees'])
+                ),
+                'mom_net_sales_pct' => $momNetSales,
+                'mom_net_gmv_pct' => $momNetGmv,
+                // Legacy commission fields kept for older clients; UI no longer displays them.
                 'net_revenue_commission' => round($cur['commission_revenue'], 2),
                 'tax_and_fees' => round($cur['tax_and_fees'], 2),
                 'effective_take_rate_avg_merchant_pct' => round($avgMerchantPctCur, 2),
-                'effective_take_rate_on_gmv_pct' => $effectiveOnGmv,
+                'effective_take_rate_on_gmv_pct' => $cur['gross_sales_gmv'] > 0
+                    ? round($cur['commission_revenue'] / $cur['gross_sales_gmv'] * 100.0, 2)
+                    : 0.0,
                 'contribution_margin' => round($cur['contribution_margin'], 2),
-                'contribution_margin_pct_of_revenue' => $marginPctOfRevenue,
-                'mom_gross_sales_gmv_pct' => $momGmv,
-                'mom_net_revenue_commission_pct' => $momCommission,
-                'mom_tax_and_fees_pct' => $momTaxAndFees,
-                'mom_contribution_margin_pct' => $momMargin,
+                'contribution_margin_pct_of_revenue' => $cur['commission_revenue'] > 0
+                    ? round($cur['contribution_margin'] / $cur['commission_revenue'] * 100.0, 1)
+                    : 0.0,
+                'mom_net_revenue_commission_pct' => $this->percentChange(
+                    $prev['commission_revenue'],
+                    $cur['commission_revenue']
+                ),
+                'mom_tax_and_fees_pct' => $this->percentChange($prev['tax_and_fees'], $cur['tax_and_fees']),
+                'mom_contribution_margin_pct' => $this->percentChange(
+                    $prev['contribution_margin'],
+                    $cur['contribution_margin']
+                ),
                 'weighted_avg_commission_pct_current_month' => $cur['weighted_avg_commission_pct'],
             ],
             'income_statement' => [
@@ -343,6 +367,9 @@ class AdminPlatformPnLService
             $paymongoByMethod[$this->paymongoGatewayField($mk)] = 0.0;
         }
 
+        /** @var array<string, array{label: string, total: float, channels: array<string, array{label: string, amount: float}>}> $gatewayBreakdown */
+        $gatewayBreakdown = [];
+
         foreach ($salesRows as $row) {
             $rowGateway = (float) $row->gateway_fees;
             $grossSalesGmv += (float) $row->gross_amount;
@@ -354,10 +381,33 @@ class AdminPlatformPnLService
             $txnCount += (int) $row->txn_count;
 
             $provider = strtolower((string) ($row->payment_provider ?? ''));
+            $method = strtolower(trim((string) ($row->payment_method ?? '')));
+            if ($provider === '' || $provider === 'free') {
+                if ($rowGateway > 0) {
+                    $this->accumulateGatewayBreakdown(
+                        $gatewayBreakdown,
+                        'other',
+                        'Other',
+                        $method !== '' ? $method : 'unspecified',
+                        $this->channelLabelForProvider('other', $method !== '' ? $method : 'unspecified'),
+                        $rowGateway
+                    );
+                }
+            } else {
+                $this->accumulateGatewayBreakdown(
+                    $gatewayBreakdown,
+                    $provider,
+                    $this->providerLabel($provider),
+                    $method !== '' ? $method : 'default',
+                    $this->channelLabelForProvider($provider, $method !== '' ? $method : 'default'),
+                    $rowGateway
+                );
+            }
+
             if ($provider === 'paypal') {
                 $gatewayFeesPaypal += $rowGateway;
             } elseif ($provider === 'paymongo') {
-                $pnlBucket = $this->ledgerMethodToPnlBucket((string) ($row->payment_method ?? ''));
+                $pnlBucket = $this->ledgerMethodToPnlBucket($method);
                 $field = $pnlBucket !== null ? $this->paymongoGatewayField($pnlBucket) : null;
                 if ($field !== null) {
                     $paymongoByMethod[$field] += $rowGateway;
@@ -370,7 +420,13 @@ class AdminPlatformPnLService
         $commissionRevenue = round($platformFee + $markupTotal, 2);
         $refunds = $this->sumRefunds($start, $end);
         $chargebacks = 0.0;
+        $gatewayFeesRounded = round($gatewayFees, 2);
+        // Pre-gateway net (gross − refunds − chargebacks).
         $netGmv = round($grossSalesGmv - $refunds - $chargebacks, 2);
+        $gatewayBreakdownNormalized = $this->normalizeGatewayBreakdown($gatewayBreakdown);
+        // Only channels checked in Finance Settings count toward Net sales.
+        $visibleGatewayFees = $this->sumVisibleGatewayFees($gatewayBreakdownNormalized);
+        $netSales = round($netGmv - $visibleGatewayFees, 2);
 
         $clawback = round((float) ($clawbackResult?->clawback ?? 0.0), 2);
         $contributionMargin = round($commissionRevenue - $gatewayFees - $clawback, 2);
@@ -388,8 +444,9 @@ class AdminPlatformPnLService
             /** @deprecated Kept for API compatibility; always zero */
             'cancellations' => 0.0,
             'net_gmv' => round($netGmv, 2),
+            'net_sales' => $netSales,
             'commission_revenue' => $commissionRevenue,
-            'gateway_fees' => round($gatewayFees, 2),
+            'gateway_fees' => $gatewayFeesRounded,
             'gateway_fees_paypal' => round($gatewayFeesPaypal, 2),
             'variable_refund_cancel_commission' => $clawback,
             'contribution_margin' => $contributionMargin,
@@ -401,8 +458,140 @@ class AdminPlatformPnLService
             $row[$field] = round($paymongoByMethod[$field] ?? 0.0, 2);
         }
         $row['gateway_fees_paymongo_unspecified'] = round($paymongoByMethod['gateway_fees_paymongo_unspecified'], 2);
+        $row['gateway_breakdown'] = $gatewayBreakdownNormalized;
+        $row['gateway_fees_visible'] = $visibleGatewayFees;
 
         return $row;
+    }
+
+    /**
+     * @param  list<array{key: string, label: string, total: float, channels: list<array{key: string, label: string, amount: float}>}>  $breakdown
+     */
+    private function sumVisibleGatewayFees(array $breakdown): float
+    {
+        $total = 0.0;
+        foreach ($breakdown as $provider) {
+            $providerKey = (string) $provider['key'];
+            foreach ($provider['channels'] as $channel) {
+                $channelKey = (string) $channel['key'];
+                if ($this->rateSettingRepository->isChannelVisibleInSales($providerKey, $channelKey)) {
+                    $total += (float) $channel['amount'];
+                }
+            }
+        }
+
+        return round($total, 2);
+    }
+
+    /**
+     * @param  array<string, array{label: string, total: float, channels: array<string, array{label: string, amount: float}>}>  $breakdown
+     */
+    private function accumulateGatewayBreakdown(
+        array &$breakdown,
+        string $providerKey,
+        string $providerLabel,
+        string $channelKey,
+        string $channelLabel,
+        float $amount
+    ): void {
+        if (! isset($breakdown[$providerKey])) {
+            $breakdown[$providerKey] = [
+                'label' => $providerLabel,
+                'total' => 0.0,
+                'channels' => [],
+            ];
+        }
+        $breakdown[$providerKey]['total'] += $amount;
+        if (! isset($breakdown[$providerKey]['channels'][$channelKey])) {
+            $breakdown[$providerKey]['channels'][$channelKey] = [
+                'label' => $channelLabel,
+                'amount' => 0.0,
+            ];
+        }
+        $breakdown[$providerKey]['channels'][$channelKey]['amount'] += $amount;
+    }
+
+    /**
+     * @param  array<string, array{label: string, total: float, channels: array<string, array{label: string, amount: float}>}>  $breakdown
+     * @return list<array{key: string, label: string, total: float, channels: list<array{key: string, label: string, amount: float}>}>
+     */
+    private function normalizeGatewayBreakdown(array $breakdown): array
+    {
+        $order = ['paynamics', 'paymongo', 'paypal', 'other'];
+        uksort($breakdown, function (string $a, string $b) use ($order) {
+            $ia = array_search($a, $order, true);
+            $ib = array_search($b, $order, true);
+            $ia = $ia === false ? 99 : $ia;
+            $ib = $ib === false ? 99 : $ib;
+            if ($ia === $ib) {
+                return strcmp($a, $b);
+            }
+
+            return $ia <=> $ib;
+        });
+
+        $normalized = [];
+        foreach ($breakdown as $providerKey => $provider) {
+            $channels = [];
+            foreach ($provider['channels'] as $channelKey => $channel) {
+                $channels[] = [
+                    'key' => $channelKey,
+                    'label' => $channel['label'],
+                    'amount' => round($channel['amount'], 2),
+                ];
+            }
+            usort($channels, fn ($a, $b) => strcmp($a['label'], $b['label']));
+            $normalized[] = [
+                'key' => $providerKey,
+                'label' => $provider['label'],
+                'total' => round($provider['total'], 2),
+                'channels' => $channels,
+            ];
+        }
+
+        return $normalized;
+    }
+
+    private function providerLabel(string $provider): string
+    {
+        return match ($provider) {
+            'paynamics' => 'Paynamics',
+            'paymongo' => 'PayMongo',
+            'paypal' => 'PayPal',
+            default => ucfirst($provider),
+        };
+    }
+
+    private function channelLabelForProvider(string $provider, string $method): string
+    {
+        if ($provider === 'paypal' || $method === 'default') {
+            return $provider === 'paypal' ? 'PayPal' : 'General';
+        }
+
+        if ($provider === 'paymongo') {
+            $bucket = $this->ledgerMethodToPnlBucket($method) ?? $method;
+
+            return $this->paymongoIncomeRowLabel($bucket === 'qrph' ? 'qr_ph' : $bucket);
+        }
+
+        if ($provider === 'paynamics') {
+            return match ($method) {
+                'card' => 'Credit / Debit Card',
+                'gcash' => 'GCash',
+                'maya' => 'Maya (PayMaya)',
+                'grabpay' => 'GrabPay',
+                'shopeepay' => 'ShopeePay',
+                'bdo' => 'BDO Online Banking',
+                'bpi' => 'BPI Direct Debit',
+                'landbank' => 'Landbank',
+                'unionbank' => 'UnionBank Direct Debit',
+                'billease' => 'BillEase',
+                'unspecified', '' => 'Unspecified',
+                default => strtoupper($method),
+            };
+        }
+
+        return $method !== '' ? strtoupper($method) : 'Unspecified';
     }
 
     /**
@@ -478,77 +667,157 @@ class AdminPlatformPnLService
      */
     private function incomeStatementRows(array $cur, array $prev, array $ytd): array
     {
+        // Gross → refunds / chargebacks → checked channels under gateway names → Net sales.
         $rows = [
-            $this->row('gmv', 'Gross sales (GMV)', false, 'standard', $cur, $prev, $ytd, 'gross_sales_gmv'),
-            $this->row('refunds', 'refunds', true, 'standard', $cur, $prev, $ytd, 'refunds', true),
-            $this->row('chargebacks', 'chargebacks', true, 'standard', $cur, $prev, $ytd, 'chargebacks', true),
-            $this->row('net_gmv', 'Net GMV', false, 'summary', $cur, $prev, $ytd, 'net_gmv'),
+            $this->row('gmv', 'Gross sales', false, 'standard', $cur, $prev, $ytd, 'gross_sales_gmv'),
+            $this->row('refunds', 'Refunds', true, 'standard', $cur, $prev, $ytd, 'refunds', true),
+            $this->row('chargebacks', 'Chargebacks', true, 'standard', $cur, $prev, $ytd, 'chargebacks', true),
         ];
 
-        $rows[] = [
-            'key' => 'commission',
-            'label' => 'Net revenue (platform fee + markup)',
-            'less' => false,
-            'variant' => 'commission',
-            'current_month' => $cur['commission_revenue'],
-            'previous_month' => $prev['commission_revenue'],
-            'mom_pct' => $this->percentChange($prev['commission_revenue'], $cur['commission_revenue']),
-            'ytd' => $ytd['commission_revenue'],
-            'pct_of_gmv' => $this->pctOfGmvSigned($cur['commission_revenue'], $cur['gross_sales_gmv']),
-        ];
+        $curBreakdown = is_array($cur['gateway_breakdown'] ?? null) ? $cur['gateway_breakdown'] : [];
+        $prevBreakdown = is_array($prev['gateway_breakdown'] ?? null) ? $prev['gateway_breakdown'] : [];
+        $ytdBreakdown = is_array($ytd['gateway_breakdown'] ?? null) ? $ytd['gateway_breakdown'] : [];
 
-        $rows[] = $this->row(
-            'gateway_paypal',
-            'PayPal',
-            true,
-            'standard',
-            $cur,
-            $prev,
-            $ytd,
-            'gateway_fees_paypal',
-            true
-        );
-
-        foreach (self::PAYMONGO_INCOME_STATEMENT_METHODS as $methodKey) {
-            $field = $this->paymongoGatewayField($methodKey);
-            $rows[] = $this->row(
-                'gateway_pm_'.$methodKey,
-                $this->paymongoIncomeRowLabel($methodKey),
-                true,
-                'standard',
-                $cur,
-                $prev,
-                $ytd,
-                $field,
-                true
-            );
+        $prevByProvider = [];
+        foreach ($prevBreakdown as $provider) {
+            $prevByProvider[$provider['key']] = $provider;
+        }
+        $ytdByProvider = [];
+        foreach ($ytdBreakdown as $provider) {
+            $ytdByProvider[$provider['key']] = $provider;
         }
 
-        $rows[] = $this->row(
-            'gateway_pm_unspecified',
-            'PayMongo (unspecified)',
-            true,
-            'standard',
-            $cur,
-            $prev,
-            $ytd,
-            'gateway_fees_paymongo_unspecified',
-            true
-        );
+        $amountLookup = function (array $breakdown, string $providerKey, string $channelKey): float {
+            foreach ($breakdown as $provider) {
+                if ((string) $provider['key'] !== $providerKey) {
+                    continue;
+                }
+                foreach ($provider['channels'] ?? [] as $channel) {
+                    if ((string) $channel['key'] === $channelKey) {
+                        return (float) ($channel['amount'] ?? 0);
+                    }
+                }
+            }
 
-        $rows[] = [
-            'key' => 'margin',
-            'label' => 'Contribution margin',
-            'less' => false,
-            'variant' => 'margin',
-            'current_month' => $cur['contribution_margin'],
-            'previous_month' => $prev['contribution_margin'],
-            'mom_pct' => $this->percentChange($prev['contribution_margin'], $cur['contribution_margin']),
-            'ytd' => $ytd['contribution_margin'],
-            'pct_of_gmv' => $this->pctOfGmvSigned($cur['contribution_margin'], $cur['gross_sales_gmv']),
-        ];
+            return 0.0;
+        };
+
+        foreach ($this->visibleSalesChannelTree() as $gateway) {
+            $providerKey = (string) $gateway['provider'];
+            $gatewayUuid = (string) $gateway['uuid'];
+            $visibleChannels = $gateway['channels'];
+            if ($visibleChannels === []) {
+                continue;
+            }
+
+            $curProviderTotal = 0.0;
+            $prevProviderTotal = 0.0;
+            $ytdProviderTotal = 0.0;
+            foreach ($visibleChannels as $channel) {
+                $channelKey = (string) $channel['key'];
+                $curProviderTotal += $amountLookup($curBreakdown, $providerKey, $channelKey);
+                $prevProviderTotal += $amountLookup($prevBreakdown, $providerKey, $channelKey);
+                $ytdProviderTotal += $amountLookup($ytdBreakdown, $providerKey, $channelKey);
+            }
+
+            $rows[] = $this->literalRow(
+                'gateway_provider_'.$gatewayUuid,
+                (string) $gateway['name'],
+                true,
+                'gateway_provider',
+                $curProviderTotal,
+                $prevProviderTotal,
+                $ytdProviderTotal,
+                (float) $cur['gross_sales_gmv'],
+                1
+            );
+
+            foreach ($visibleChannels as $channel) {
+                $channelKey = (string) $channel['key'];
+                $rows[] = $this->literalRow(
+                    'gateway_channel_'.$gatewayUuid.'_'.$channelKey,
+                    (string) $channel['label'],
+                    true,
+                    'gateway_channel',
+                    $amountLookup($curBreakdown, $providerKey, $channelKey),
+                    $amountLookup($prevBreakdown, $providerKey, $channelKey),
+                    $amountLookup($ytdBreakdown, $providerKey, $channelKey),
+                    (float) $cur['gross_sales_gmv'],
+                    2
+                );
+            }
+        }
+
+        $rows[] = $this->row('net_sales', 'Net sales', false, 'summary', $cur, $prev, $ytd, 'net_sales');
 
         return $rows;
+    }
+
+    /**
+     * Active gateways with only channels checked for Sales summary.
+     *
+     * @return list<array{uuid: string, name: string, provider: string, channels: list<array{key: string, label: string}>}>
+     */
+    private function visibleSalesChannelTree(): array
+    {
+        $gateways = PaymentGateway::query()
+            ->where('status', GeneralConstants::GENERAL_STATUSES['ACTIVE'])
+            ->orderBy('provider')
+            ->orderBy('name')
+            ->get(['uuid', 'name', 'provider', 'payment_channels']);
+
+        $paynamicsCatalog = collect($this->rateSettingRepository->paynamicsChannelCatalog())
+            ->keyBy('key');
+        $paymongoCatalog = collect($this->rateSettingRepository->paymongoChannelCatalog())
+            ->keyBy('key');
+
+        $tree = [];
+        foreach ($gateways as $gateway) {
+            $provider = (string) $gateway->provider;
+            $channels = [];
+
+            if ($provider === 'paynamics') {
+                foreach ($gateway->enabledPaynamicsChannels() as $channelKey) {
+                    if (! $this->rateSettingRepository->isChannelVisibleInSales('paynamics', $channelKey)) {
+                        continue;
+                    }
+                    $channels[] = [
+                        'key' => $channelKey,
+                        'label' => (string) ($paynamicsCatalog[$channelKey]['label'] ?? $this->channelLabelForProvider('paynamics', $channelKey)),
+                    ];
+                }
+            } elseif ($provider === 'paymongo') {
+                foreach ($paymongoCatalog as $channelKey => $meta) {
+                    if (! $this->rateSettingRepository->isChannelVisibleInSales('paymongo', (string) $channelKey)) {
+                        continue;
+                    }
+                    $channels[] = [
+                        'key' => (string) $channelKey,
+                        'label' => (string) $meta['label'],
+                    ];
+                }
+            } elseif ($provider === 'paypal') {
+                if ($this->rateSettingRepository->isChannelVisibleInSales('paypal', 'default')) {
+                    $channels[] = [
+                        'key' => 'default',
+                        'label' => 'PayPal',
+                    ];
+                }
+            }
+
+            if ($channels === []) {
+                continue;
+            }
+
+            $tree[] = [
+                'uuid' => (string) $gateway->uuid,
+                'name' => (string) $gateway->name,
+                'provider' => $provider,
+                'channels' => $channels,
+            ];
+        }
+
+        return $tree;
     }
 
     /**
@@ -566,7 +835,8 @@ class AdminPlatformPnLService
         array $prev,
         array $ytd,
         string $field,
-        bool $deduction = false
+        bool $deduction = false,
+        int $indent = 0
     ): array {
         $c = (float) $cur[$field];
         $p = (float) $prev[$field];
@@ -578,11 +848,42 @@ class AdminPlatformPnLService
             'label' => $label,
             'less' => $less,
             'variant' => $variant,
+            'indent' => $indent,
             'current_month' => $c,
             'previous_month' => $p,
             'mom_pct' => $mom,
-            'ytd' => (float) $ytd[$field],
+            'ytd' => (float) ($ytd[$field] ?? 0),
             'pct_of_gmv' => $this->pctOfGmvSigned($sign * $c, (float) $cur['gross_sales_gmv']),
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function literalRow(
+        string $key,
+        string $label,
+        bool $less,
+        string $variant,
+        float $current,
+        float $previous,
+        float $ytd,
+        float $gross,
+        int $indent
+    ): array {
+        $sign = $less && $current > 0 ? -1.0 : 1.0;
+
+        return [
+            'key' => $key,
+            'label' => $label,
+            'less' => $less,
+            'variant' => $variant,
+            'indent' => $indent,
+            'current_month' => $current,
+            'previous_month' => $previous,
+            'mom_pct' => $this->percentChange($previous, $current),
+            'ytd' => $ytd,
+            'pct_of_gmv' => $this->pctOfGmvSigned($sign * $current, $gross),
         ];
     }
 
