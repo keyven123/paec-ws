@@ -16,6 +16,9 @@ class CartCheckoutRequest extends FormRequest
         return [
             'payment_gateway_uuid' => ['nullable', 'uuid'],
             'payment_channel' => ['nullable', 'string', Rule::in(array_keys(PaynamicsService::CHANNELS))],
+            // Referral codes keyed by event uuid, one per activity in the cart.
+            'affiliate_codes' => ['nullable', 'array'],
+            'affiliate_codes.*' => ['nullable', 'string', 'max:32'],
         ];
     }
 

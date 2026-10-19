@@ -66,7 +66,7 @@ class AffiliatePartnerController extends Controller
         $code = $affiliate?->affiliate_code;
         $status = $affiliate?->affiliate_status ?? 'none';
         $referralLink = ($status === 'approved' && $code)
-            ? "{$baseUrl}/browse?ref={$code}"
+            ? "{$baseUrl}/?ref=" . rawurlencode($code)
             : null;
 
         return [
@@ -202,7 +202,7 @@ class AffiliatePartnerController extends Controller
         $fresh = $this->userRepository->enrollAffiliatePartner($user);
 
         return response()->json([
-            'message' => 'Welcome to the TicketOC affiliate partner program.',
+            'message' => 'Welcome to the PAEC affiliate partner program.',
             'data' => $this->affiliatePartnerData($fresh),
         ], 201);
     }

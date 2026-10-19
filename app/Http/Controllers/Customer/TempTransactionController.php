@@ -429,6 +429,7 @@ class TempTransactionController extends Controller
                 'event_uuid' => $item->event_uuid,
                 'event_location_uuid' => $item->event_location_uuid,
                 'promo_code_uuid' => $item->promo_code_uuid,
+                'affiliate_code' => $payload['affiliate_codes'][$item->event_uuid] ?? null,
                 'tickets' => array_map(fn (array $ticket) => [
                     'event_ticket_uuid' => $ticket['event_ticket_uuid'],
                     'quantity' => (int) $ticket['quantity'],
