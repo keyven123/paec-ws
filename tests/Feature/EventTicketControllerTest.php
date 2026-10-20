@@ -172,6 +172,80 @@ class EventTicketControllerTest extends TestCase
     }
 
     #[\PHPUnit\Framework\Attributes\Test]
+    public function itCanCreateAGiftCertificateTicketWithTerms()
+    {
+        $response = $this->withHeaders([
+            'Authorization' => 'Bearer ' . $this->adminToken,
+        ])->postJson('/api/v1/event-tickets', [
+            'event_uuid' => $this->testEvent->uuid,
+            'schedule_time_uuid' => $this->testScheduleTime->uuid,
+            'schedule_uuid' => $this->testSchedule->uuid,
+            'code' => 'GIFT001',
+            'name' => 'Gift Certificate',
+            'ticket_kind' => 'gift_certificate',
+            'description' => 'Gift admission',
+            'price' => 75.00,
+            'is_bundle' => false,
+            'is_unlimited' => false,
+            'display_order' => 1,
+            'max_ticket' => 100,
+            'with_terms_and_conditions' => true,
+            'terms_and_conditions' => "Present the QR code at the entrance.\nNon-transferable.",
+        ]);
+
+        $response->assertStatus(201)
+            ->assertJsonPath('data.ticket_kind', 'gift_certificate')
+            ->assertJsonPath('data.terms_and_conditions', "Present the QR code at the entrance.\nNon-transferable.");
+
+        $this->assertDatabaseHas('event_tickets', [
+            'code' => 'GIFT001',
+            'ticket_kind' => 'gift_certificate',
+            'terms_and_conditions' => "Present the QR code at the entrance.\nNon-transferable.",
+        ]);
+    }
+
+    #[\PHPUnit\Framework\Attributes\Test]
+    public function itDefaultsToRegularAndRequiresTermsWhenTheCheckboxIsOn()
+    {
+        $base = [
+            'event_uuid' => $this->testEvent->uuid,
+            'schedule_time_uuid' => $this->testScheduleTime->uuid,
+            'schedule_uuid' => $this->testSchedule->uuid,
+            'name' => 'General Admission',
+            'price' => 50.00,
+            'is_bundle' => false,
+            'is_unlimited' => false,
+            'display_order' => 1,
+            'max_ticket' => 100,
+        ];
+
+        $this->withHeaders(['Authorization' => 'Bearer ' . $this->adminToken])
+            ->postJson('/api/v1/event-tickets', $base)
+            ->assertStatus(201)
+            ->assertJsonPath('data.ticket_kind', 'regular')
+            ->assertJsonPath('data.terms_and_conditions', null);
+
+        $this->withHeaders(['Authorization' => 'Bearer ' . $this->adminToken])
+            ->postJson('/api/v1/event-tickets', [
+                ...$base,
+                'code' => 'TERMS001',
+                'with_terms_and_conditions' => true,
+                'terms_and_conditions' => '',
+            ])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors(['terms_and_conditions']);
+
+        $this->withHeaders(['Authorization' => 'Bearer ' . $this->adminToken])
+            ->postJson('/api/v1/event-tickets', [
+                ...$base,
+                'code' => 'KIND001',
+                'ticket_kind' => 'vip',
+            ])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors(['ticket_kind']);
+    }
+
+    #[\PHPUnit\Framework\Attributes\Test]
     public function itCanCreateABundleEventTicketWithCoupons()
     {
         $eventTicketData = [

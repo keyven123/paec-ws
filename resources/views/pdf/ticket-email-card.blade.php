@@ -84,6 +84,12 @@
                         </td>
                     </tr>
                 </table>
+                @if (! empty($termsText))
+                    <div style="margin-top:2pt; border:1px solid #fed7aa; background:#fff7ed; border-radius:6pt; padding:5pt 7pt;">
+                        <p style="margin:0 0 2pt 0; font-size:6.5px; font-weight:bold; letter-spacing:0.8px; color:#c2410c;">TERMS AND CONDITIONS</p>
+                        <p style="margin:0; font-size:6.5px; line-height:1.4; color:#1e1b4b; white-space:pre-line;">{{ $termsText }}</p>
+                    </div>
+                @endif
             </div>
         </td>
 
