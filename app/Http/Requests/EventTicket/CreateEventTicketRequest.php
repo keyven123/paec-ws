@@ -51,7 +51,15 @@ class CreateEventTicketRequest extends FormRequest
                     ->whereNull('deleted_at'),
             ],
             'name' => ['required', 'string', 'max:255'],
+            'ticket_kind' => ['nullable', 'string', Rule::in(['regular', 'gift_certificate'])],
             'description' => ['nullable', 'string'],
+            'with_terms_and_conditions' => ['nullable', 'boolean'],
+            'terms_and_conditions' => [
+                'nullable',
+                'string',
+                'max:5000',
+                Rule::requiredIf(fn () => (bool) $this->input('with_terms_and_conditions')),
+            ],
             'price' => ['required', 'numeric', 'min:0', 'max:999999.99'],
             'is_bundle' => ['nullable', 'boolean'],
             'bundle_quantity' => ['nullable', 'integer', 'min:1'],
@@ -136,8 +144,15 @@ class CreateEventTicketRequest extends FormRequest
 
     protected function prepareForValidation(): void
     {
+        $merge = [];
         if (($this->input('operation_days') ?? null) !== 'custom') {
-            $this->merge(['operation_custom_days' => null]);
+            $merge['operation_custom_days'] = null;
+        }
+        if ($this->has('with_terms_and_conditions') && ! $this->boolean('with_terms_and_conditions')) {
+            $merge['terms_and_conditions'] = null;
+        }
+        if ($merge !== []) {
+            $this->merge($merge);
         }
     }
 

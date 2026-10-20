@@ -35,7 +35,9 @@ class EventTicketPublicResource extends JsonResource
             'uuid' => $this->uuid,
             'code' => $this->code,
             'name' => $this->name,
+            'ticket_kind' => $this->ticket_kind ?: 'regular',
             'description' => $this->description,
+            'terms_and_conditions' => $this->terms_and_conditions,
             'price' => TicketMarkupService::displayUnitPrice($this->resource),
             // Unit price checkout charges after the ticket discount (same rules as the order lines).
             'discounted_price' => TicketMarkupService::buildOrderLine($this->resource, 1)['total_amount'],

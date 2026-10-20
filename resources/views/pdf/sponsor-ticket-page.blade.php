@@ -55,7 +55,7 @@
                             <p style="margin:0; font-size:16px; font-weight:bold; color:#7c3aed;">{{ $eventName }}</p>
                         @endif
                         <p style="margin:4pt 0 0 0; font-size:8px; font-weight:bold; letter-spacing:1px; color:#f97316;">
-                            SPONSOR E-TICKET
+                            {{ $ticketHeaderLabel ?? 'SPONSOR E-TICKET' }}
                         </p>
                     </td>
                 </tr>
@@ -151,7 +151,7 @@
                 <tr>
                     <td style="background:#7c3aed; padding:8pt 12pt; text-align:center;">
                         <p style="margin:0; font-size:9px; font-weight:bold; letter-spacing:0.8px; color:#ffffff;">
-                            This is your sponsor ticket. Do not duplicate.
+                            {{ $ticketFooterText ?? 'This is your sponsor ticket. Do not duplicate.' }}
                         </p>
                     </td>
                 </tr>
@@ -170,7 +170,7 @@
                         @else
                             <div style="padding:90pt 16pt;">
                                 <p style="margin:0; font-size:12px; font-weight:bold; color:#7c3aed;">{{ $eventName }}</p>
-                                <p style="margin:8pt 0 0 0; font-size:9px; font-weight:bold; color:#f97316;">SPONSOR PASS</p>
+                                <p style="margin:8pt 0 0 0; font-size:9px; font-weight:bold; color:#f97316;">{{ $ticketPassLabel ?? 'SPONSOR PASS' }}</p>
                             </div>
                         @endif
                     </td>
@@ -179,13 +179,14 @@
                 <tr><td style="height:10pt;"></td></tr>
 
                 <tr>
-                    <td style="border:2pt solid #f97316; border-radius:6pt; padding:12pt 14pt; background:#fff7ed; vertical-align:top;">
+                    {{-- Height stretches the terms box to the bottom of the ticket stub beside it. --}}
+                    <td style="border:2pt solid #f97316; border-radius:6pt; padding:12pt 14pt; background:#fff7ed; vertical-align:top; height:336pt;">
                         <p style="margin:0 0 8pt 0; font-size:11px; font-weight:bold; color:#c2410c; letter-spacing:0.6px;">
                             TERMS AND CONDITIONS
                         </p>
-                        <div class="terms-body">{!! nl2br(e($termsText ?? '')) !!}</div>
+                        <div class="terms-body" style="font-size:{{ $termsFontSize ?? 8 }}px;">{!! nl2br(e($termsText ?? '')) !!}</div>
                         <p style="margin:8pt 0 0 0; font-size:8px; font-weight:bold; color:#7c3aed;">
-                            Complimentary sponsor admission
+                            {{ $termsClosingLabel ?? 'Complimentary sponsor admission' }}
                         </p>
                     </td>
                 </tr>

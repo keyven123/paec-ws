@@ -199,7 +199,12 @@ class AdminPlatformPnLServiceCoverageTest extends TestCase
         $this->assertSame('Mar 2026', $statement['current_month_label']);
         $this->assertSame('Feb 2026', $statement['previous_month_label']);
         $this->assertSame('YTD 2026', $statement['ytd_label']);
-        $this->assertCount(17, $statement['rows']);
+        // No PaymentGateway records are seeded, so no gateway provider/channel
+        // rows appear between Chargebacks and Net sales.
+        $this->assertSame(
+            ['gmv', 'refunds', 'chargebacks', 'net_sales'],
+            array_column($statement['rows'], 'key')
+        );
 
         $rows = $this->rowsByKey($statement['rows']);
         $this->assertSame(
@@ -212,43 +217,18 @@ class AdminPlatformPnLServiceCoverageTest extends TestCase
         $this->assertTrue($rows['refunds']['less']);
         $this->assertSame(0.0, $rows['chargebacks']['mom_pct']);
         $this->assertSame(0.0, $rows['chargebacks']['pct_of_gmv']);
-        $this->assertSame(3800.0, $rows['net_gmv']['current_month']);
-        $this->assertSame('summary', $rows['net_gmv']['variant']);
-        $this->assertSame(5300.0, $rows['net_gmv']['ytd']);
 
-        $this->assertSame('commission', $rows['commission']['variant']);
-        $this->assertSame(125.0, $rows['commission']['previous_month']);
-        $this->assertSame(765.0, $rows['commission']['ytd']);
-        $this->assertSame(14.4, $rows['commission']['pct_of_gmv']);
-
-        $this->assertSame(50.0, $rows['gateway_paypal']['current_month']);
-        $this->assertSame(50.0, $rows['gateway_paypal']['previous_month']);
-        $this->assertSame(0.0, $rows['gateway_paypal']['mom_pct']);
-        $this->assertSame(100.0, $rows['gateway_paypal']['ytd']);
-        $this->assertSame(-1.3, $rows['gateway_paypal']['pct_of_gmv']);
-
-        $this->assertSame('QRPH', $rows['gateway_pm_qr_ph']['label']);
-        $this->assertSame(30.0, $rows['gateway_pm_qr_ph']['current_month']);
-        $this->assertSame(15.0, $rows['gateway_pm_card']['current_month']);
-        $this->assertSame(0.0, $rows['gateway_pm_gcash']['current_month']);
-        $this->assertSame(10.0, $rows['gateway_pm_gcash']['ytd']);
-        $this->assertSame(5.0, $rows['gateway_pm_unspecified']['current_month']);
-        $this->assertSame('PayMongo (unspecified)', $rows['gateway_pm_unspecified']['label']);
+        // Net sales = net GMV (3800) − gateway fees on sales-visible channels (100).
+        $this->assertSame(3700.0, $rows['net_sales']['current_month']);
+        $this->assertSame('summary', $rows['net_sales']['variant']);
+        $this->assertSame(950.0, $rows['net_sales']['previous_month']);
+        $this->assertSame(289.5, $rows['net_sales']['mom_pct']);
+        $this->assertSame(5140.0, $rows['net_sales']['ytd']);
+        $this->assertSame(92.5, $rows['net_sales']['pct_of_gmv']);
 
         $labels = array_column($statement['rows'], 'label', 'key');
-        $this->assertSame('Card', $labels['gateway_pm_card']);
-        $this->assertSame('GCash', $labels['gateway_pm_gcash']);
-        $this->assertSame('Grab Pay', $labels['gateway_pm_grab_pay']);
-        $this->assertSame('Shopee Pay', $labels['gateway_pm_shopee_pay']);
-        $this->assertSame('Billease', $labels['gateway_pm_billease']);
-        $this->assertSame('PayMaya', $labels['gateway_pm_paymaya']);
-        $this->assertSame('DOB', $labels['gateway_pm_dob']);
-        $this->assertSame('Brankas', $labels['gateway_pm_brankas']);
-
-        $this->assertSame(410.0, $rows['margin']['current_month']);
-        $this->assertSame(75.0, $rows['margin']['previous_month']);
-        $this->assertSame(537.5, $rows['margin']['ytd']);
-        $this->assertSame(10.3, $rows['margin']['pct_of_gmv']);
+        $this->assertSame('Gross sales', $labels['gmv']);
+        $this->assertSame('Net sales', $labels['net_sales']);
     }
 
     #[Test]
@@ -267,8 +247,13 @@ class AdminPlatformPnLServiceCoverageTest extends TestCase
         $this->assertSame(10.0, $kpi['weighted_avg_commission_pct_current_month']);
 
         $rows = $this->rowsByKey($report['income_statement']['rows']);
-        $this->assertSame(0.0, $rows['commission']['pct_of_gmv']);
-        $this->assertSame(0.0, $rows['margin']['mom_pct']);
+        $this->assertSame(
+            ['gmv', 'refunds', 'chargebacks', 'net_sales'],
+            array_column($report['income_statement']['rows'], 'key')
+        );
+        $this->assertSame(0.0, $rows['gmv']['pct_of_gmv']);
+        $this->assertSame(0.0, $rows['net_sales']['current_month']);
+        $this->assertSame(0.0, $rows['net_sales']['mom_pct']);
     }
 
     #[Test]

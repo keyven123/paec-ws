@@ -76,7 +76,10 @@ class BulkCreateEventTicketsRequest extends FormRequest
                     ->whereNull('deleted_at'),
             ],
             'tickets.*.name' => ['required', 'string', 'max:255'],
+            'tickets.*.ticket_kind' => ['nullable', 'string', Rule::in(['regular', 'gift_certificate'])],
             'tickets.*.description' => ['nullable', 'string'],
+            'tickets.*.with_terms_and_conditions' => ['nullable', 'boolean'],
+            'tickets.*.terms_and_conditions' => ['nullable', 'string', 'max:5000'],
             'tickets.*.price' => ['required', 'numeric', 'min:0', 'max:999999.99'],
             'tickets.*.is_bundle' => ['nullable', 'boolean'],
             'tickets.*.bundle_quantity' => ['nullable', 'integer', 'min:1'],
@@ -185,6 +188,14 @@ class BulkCreateEventTicketsRequest extends FormRequest
                     }
                 }
 
+                if (! empty($ticket['with_terms_and_conditions'])
+                    && trim((string) ($ticket['terms_and_conditions'] ?? '')) === '') {
+                    $validator->errors()->add(
+                        "tickets.$index.terms_and_conditions",
+                        'Terms and conditions are required when Terms and Conditions is enabled.'
+                    );
+                }
+
                 if (! empty($ticket['is_bundle'])) {
                     if (empty($ticket['bundle_quantity']) || (int) $ticket['bundle_quantity'] < 1) {
                         $validator->errors()->add("tickets.$index.bundle_quantity", 'Quantity is required and must be at least 1 when bundle is enabled.');
@@ -220,6 +231,11 @@ class BulkCreateEventTicketsRequest extends FormRequest
                 $row['discount_type'] = null;
                 $row['discount_value'] = null;
             }
+
+            if (empty($row['with_terms_and_conditions'])) {
+                $row['terms_and_conditions'] = null;
+            }
+            unset($row['with_terms_and_conditions']);
 
             $withCoupon = ! empty($row['with_coupon']);
             if (! $withCoupon) {

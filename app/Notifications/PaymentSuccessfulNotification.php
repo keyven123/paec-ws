@@ -181,7 +181,9 @@ class PaymentSuccessfulNotification extends Notification implements ShouldQueue
             $ticketIndex++;
             $attachment = $isSponsor
                 ? $export->buildSponsorPageAttachment($transaction, $ticket, $ticketIndex, $ticketCount)
-                : $export->buildAttachment($transaction, $ticket);
+                : ($ticket->eventTicket?->isGiftCertificate()
+                    ? $export->buildGiftCertificatePageAttachment($transaction, $ticket, $ticketIndex, $ticketCount)
+                    : $export->buildAttachment($transaction, $ticket));
             if ($attachment !== null) {
                 $mail->attachData($attachment['data'], $attachment['filename'], ['mime' => $attachment['mime']]);
                 $payload['has_ticket_file_attachments'] = true;
