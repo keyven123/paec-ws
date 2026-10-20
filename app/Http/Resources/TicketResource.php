@@ -115,6 +115,8 @@ class TicketResource extends JsonResource
                 return [
                     'uuid' => $this->eventTicket->uuid,
                     'name' => $this->eventTicket->name,
+                    'ticket_kind' => $this->eventTicket->ticket_kind ?: 'regular',
+                    'terms_and_conditions' => $this->eventTicket->terms_and_conditions,
                     'code' => $this->eventTicket->code,
                     'price' => $this->eventTicket->price,
                     'is_virtual' => $this->eventTicket->is_virtual,

@@ -28,7 +28,9 @@ class EventTicket extends Model
         'schedule_time_uuid',
         'code',
         'name',
+        'ticket_kind',
         'description',
+        'terms_and_conditions',
         'price',
         'markup_type',
         'markup_value',
@@ -60,6 +62,17 @@ class EventTicket extends Model
         'created_by',
         'updated_by',
     ];
+
+    /** How a purchased ticket is presented: standard pass or gift certificate design. */
+    public const TICKET_KINDS = [
+        'REGULAR' => 'regular',
+        'GIFT_CERTIFICATE' => 'gift_certificate',
+    ];
+
+    public function isGiftCertificate(): bool
+    {
+        return $this->ticket_kind === self::TICKET_KINDS['GIFT_CERTIFICATE'];
+    }
 
     public const OPERATION_DAYS = [
         'ANY' => 'any',
@@ -118,7 +131,9 @@ class EventTicket extends Model
         'schedule_time_uuid',
         'code',
         'name',
+        'ticket_kind',
         'description',
+        'terms_and_conditions',
         'price',
         'markup_type',
         'markup_value',
@@ -178,6 +193,10 @@ class EventTicket extends Model
 
         if (isset($filters['is_bundle'])) {
             $query = $query->where('is_bundle', $filters['is_bundle']);
+        }
+
+        if (isset($filters['ticket_kind'])) {
+            $query = $query->where('ticket_kind', $filters['ticket_kind']);
         }
 
         if (isset($filters['available_from'])) {

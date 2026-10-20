@@ -132,6 +132,61 @@ final class TicketEmailExportService
     }
 
     /**
+     * Full A4 gift certificate page — same layout as the sponsor page, gift wording.
+     *
+     * @return array{data: string, filename: string, mime: string}|null
+     */
+    public function buildGiftCertificatePageAttachment(
+        Transaction $transaction,
+        Ticket $ticket,
+        int $ticketIndex = 1,
+        int $ticketCount = 1,
+    ): ?array {
+        try {
+            $html = view(
+                'pdf.sponsor-ticket-page',
+                $this->sponsorPageViewData($transaction, $ticket, $ticketIndex, $ticketCount, 'gift_certificate'),
+            )->render();
+
+            $options = new Options;
+            $options->set('isRemoteEnabled', true);
+            $options->set('isHtml5ParserEnabled', true);
+            $options->set('defaultFont', 'DejaVu Sans');
+            $options->set('chroot', base_path());
+
+            $dompdf = new Dompdf($options);
+            $dompdf->loadHtml($html, 'UTF-8');
+            $dompdf->setPaper('A4', 'portrait');
+            $dompdf->render();
+            $pdf = $dompdf->output();
+
+            $filenameBase = 'gift-certificate-' . $this->attachmentBaseName($transaction, $ticket);
+
+            $png = $this->pdfBlobToPng($pdf);
+            if ($png !== null) {
+                return [
+                    'data' => $png,
+                    'filename' => $filenameBase . '.png',
+                    'mime' => 'image/png',
+                ];
+            }
+
+            return [
+                'data' => $pdf,
+                'filename' => $filenameBase . '.pdf',
+                'mime' => 'application/pdf',
+            ];
+        } catch (\Throwable $e) {
+            Log::error('Gift certificate ticket email export failed', [
+                'ticket' => $ticket->uuid,
+                'error' => $e->getMessage(),
+            ]);
+
+            return null;
+        }
+    }
+
+    /**
      * One PDF per ticket with all coupons for that ticket (one coupon per page).
      *
      * @return array{data: string, filename: string, mime: string}|null
@@ -236,7 +291,9 @@ final class TicketEmailExportService
         Ticket $ticket,
         int $ticketIndex,
         int $ticketCount,
+        string $variant = 'sponsor',
     ): array {
+        $isGift = $variant === 'gift_certificate';
         $base = $this->viewData($transaction, $ticket);
         $event = $transaction->relationLoaded('event') && $transaction->event
             ? $transaction->event
@@ -250,17 +307,90 @@ final class TicketEmailExportService
             ?? $this->resolveLocalImageSrcForDompdf(public_path('images/logo/paec-logo.png'))
             ?? $this->resolveLocalImageSrcForDompdf($this->qrPngService->logoAbsolutePath());
 
+        $termsText = $this->ticketTermsText($ticket, $event?->event_description, $isGift);
+        $termsLength = Str::length($termsText);
+
         return array_merge($base, [
+            'termsFontSize' => $termsLength <= 700 ? 8.5 : ($termsLength <= 1400 ? 7.5 : ($termsLength <= 2200 ? 6.8 : 6.4)),
             'organizationName' => strtoupper((string) $organizationName),
             'sectionLabel' => $ticket->eventTicket?->name ?? 'GA',
             'ticketIndex' => max(1, $ticketIndex),
             'ticketCount' => max(1, $ticketCount),
-            'priceFormatted' => $isComplimentary
+            'priceFormatted' => ! $isGift && $isComplimentary
                 ? 'COMPLIMENTARY'
                 : ($base['priceFormatted'] ?? '₱0.00'),
             'paecLogoSrc' => $paecLogoSrc,
-            'termsText' => $this->extractTermsFromDescription($event?->event_description),
+            'ticketHeaderLabel' => $isGift ? 'GIFT CERTIFICATE E-TICKET' : 'SPONSOR E-TICKET',
+            'ticketPassLabel' => $isGift ? 'GIFT CERTIFICATE' : 'SPONSOR PASS',
+            'ticketFooterText' => $isGift
+                ? 'This is your gift certificate ticket. Do not duplicate.'
+                : 'This is your sponsor ticket. Do not duplicate.',
+            'termsClosingLabel' => $isGift
+                ? 'Gift certificate admission'
+                : 'Complimentary sponsor admission',
+            'termsText' => $termsText,
         ]);
+    }
+
+    /**
+     * Terms printed on a ticket: the ticket type's own terms win, then the
+     * activity description, then the wording for the ticket kind.
+     */
+    private function ticketTermsText(Ticket $ticket, ?string $eventDescription, bool $isGift): string
+    {
+        $custom = trim((string) ($ticket->eventTicket?->terms_and_conditions ?? ''));
+        if ($custom !== '') {
+            return Str::limit($this->cleanTermsText($custom), 2400, '...');
+        }
+
+        if ($isGift) {
+            $extracted = $this->extractTermsFromDescription($eventDescription);
+            // The sponsor-flavoured fallback does not fit a paid gift certificate.
+            if (! str_contains($extracted, 'sponsor')) {
+                return $extracted;
+            }
+
+            return "Gift certificate tickets are valid for the activity and visit date shown on this ticket.\n"
+                . "Present the QR code at the entrance for admission.\n"
+                . "Lost or duplicated tickets may be voided.\n"
+                . "The organizer reserves the right to refuse entry for safety or policy reasons.";
+        }
+
+        return $this->extractTermsFromDescription($eventDescription);
+    }
+
+    /**
+     * Terms are often pasted from Markdown documents; strip the markers so the
+     * printed ticket reads as clean letter-style text.
+     */
+    private function cleanTermsText(string $text): string
+    {
+        $lines = [];
+        foreach (preg_split("/\R/", str_replace(["\r\n", "\r"], "\n", $text)) ?: [] as $line) {
+            $line = preg_replace('/^\s{0,3}#{1,6}\s+/', '', $line) ?? $line;
+            $line = preg_replace('/^\s*>\s?/', '', $line) ?? $line;
+            $line = preg_replace('/^\s*[-*+]\s+/', '• ', $line) ?? $line;
+            $line = preg_replace('/\*\*([^*]+)\*\*/', '$1', $line) ?? $line;
+            $line = preg_replace('/__([^_]+)__/', '$1', $line) ?? $line;
+            $line = preg_replace('/`([^`]+)`/', '$1', $line) ?? $line;
+            $line = preg_replace('/\[([^\]]+)\]\([^)]*\)/', '$1', $line) ?? $line;
+            $lines[] = trim(preg_replace('/\s+/', ' ', $line) ?? $line);
+        }
+
+        // The ticket already labels the box, so a leading heading is redundant.
+        foreach ($lines as $index => $line) {
+            if ($line === '') {
+                continue;
+            }
+            if (preg_match('/^terms\s*(and|&)\s*conditions$/i', $line)) {
+                unset($lines[$index]);
+            }
+            break;
+        }
+
+        $clean = implode("\n", $lines);
+
+        return trim(preg_replace("/\n{3,}/", "\n\n", $clean) ?? $clean);
     }
 
     /**
@@ -283,11 +413,11 @@ final class TicketEmailExportService
             $matches,
         )) {
             $extracted = trim(preg_replace("/[ \t]+/", ' ', str_replace("\r\n", "\n", $matches[1])) ?? '');
-            $extracted = trim(preg_replace("/\n{3,}/", "\n\n", $extracted) ?? '');
+            $extracted = $this->cleanTermsText($extracted);
             if ($extracted !== '') {
                 // Keep Dompdf-friendly length for the side panel.
-                if (Str::length($extracted) > 900) {
-                    $extracted = Str::limit($extracted, 900, '...');
+                if (Str::length($extracted) > 2400) {
+                    $extracted = Str::limit($extracted, 2400, '...');
                 }
 
                 return $extracted;
@@ -353,6 +483,10 @@ final class TicketEmailExportService
             'ticketNumber' => $ticket->ticket_number ?? '—',
             'venue' => $venueName,
             'ticketType' => $ticket->eventTicket?->name ?? 'Regular',
+            'ticketKind' => $ticket->eventTicket?->ticket_kind ?: 'regular',
+            'termsText' => ($terms = trim((string) ($ticket->eventTicket?->terms_and_conditions ?? ''))) !== ''
+                ? Str::limit($this->cleanTermsText($terms), 260, '...')
+                : null,
             'orderNumber' => $transaction->order_number ?? '—',
             'qrText' => $ticket->status === 'active' ? ($ticket->qr_code ?? '') : '',
             'priceFormatted' => '₱' . number_format($price, 2),
