@@ -14,6 +14,10 @@ use App\Http\Controllers\UploadController;
 use Illuminate\Support\Facades\Route;
 
 Route::group(['prefix' => 'customer'], function () {
+    Route::get('/careers/my-applications', [\App\Http\Controllers\CareerPositionController::class, 'myApplications']);
+    Route::post('/careers/{uuid}/apply', [\App\Http\Controllers\CareerPositionController::class, 'apply']);
+    Route::get('/careers/{uuid}/my-application', [\App\Http\Controllers\CareerPositionController::class, 'myApplication']);
+
     Route::get('/affiliate', [AffiliatePartnerController::class, 'show']);
     Route::post('/affiliate/apply', [AffiliatePartnerController::class, 'apply']);
     Route::get('/affiliate/available-events', [AffiliatePartnerController::class, 'availableEvents']);
