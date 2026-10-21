@@ -77,6 +77,9 @@ Route::prefix('v1')->group(function () {
 
     Route::middleware('throttle:50,1')->group(function () {
         Route::post('login', [AuthController::class, 'login'])->name('login');
+        // Public on purpose: the access token is already expired when this is
+        // called; the JWT guard validates it against the refresh window.
+        Route::post('refresh', [AuthController::class, 'refresh']);
         Route::post('register', [AuthController::class, 'register']);
         Route::post('verify-email', [AuthController::class, 'verifyEmail']);
         Route::post('resend-verification', [AuthController::class, 'resendVerification']);
@@ -131,6 +134,8 @@ Route::prefix('v1')->group(function () {
             Route::get('/cms/footer', [\App\Http\Controllers\CmsController::class, 'publicFooter']);
             Route::get('/cms/pages', [\App\Http\Controllers\CmsController::class, 'publicPages']);
             Route::get('/cms/pages/{slug}', [\App\Http\Controllers\CmsController::class, 'publicShow']);
+            Route::get('/careers', [\App\Http\Controllers\CareerPositionController::class, 'publicIndex']);
+            Route::get('/careers/{uuid}', [\App\Http\Controllers\CareerPositionController::class, 'publicShow']);
         });
     });
 
@@ -139,7 +144,6 @@ Route::prefix('v1')->group(function () {
         Route::put('profile', [ProfileController::class, 'updateProfile']);
         Route::delete('profile/delete', [ProfileController::class, 'deleteAccount']);
         Route::post('logout', [AuthController::class, 'logout']);
-        Route::post('refresh', [AuthController::class, 'refresh']);
         Route::post('broadcasting/auth', [BroadcastingAuthController::class, 'customer']);
         include __DIR__.'/routes/customer.php';
     });
@@ -177,6 +181,7 @@ Route::prefix('v1')->group(function () {
         include __DIR__.'/routes/uploads.php';
         include __DIR__.'/routes/promo_codes.php';
         include __DIR__.'/routes/cms.php';
+        include __DIR__.'/routes/careers.php';
         include __DIR__.'/routes/ticket-coupons.php';
         include __DIR__.'/routes/payment_gateway_rate_settings.php';
         include __DIR__.'/routes/payment_gateways.php';

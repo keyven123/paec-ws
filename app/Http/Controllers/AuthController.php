@@ -112,7 +112,14 @@ class AuthController extends Controller
 
     public function refresh()
     {
-        $newToken = auth('api')->refresh();
+        try {
+            $newToken = auth('api')->refresh();
+        } catch (\Throwable $e) {
+            return response()->json([
+                'message' => 'Unauthenticated.',
+                'error' => 'Authentication required',
+            ], 401);
+        }
 
         return $this->respondWithToken($newToken, auth('api')->user());
     }
