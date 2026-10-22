@@ -246,6 +246,52 @@ class EventTicketControllerTest extends TestCase
     }
 
     #[\PHPUnit\Framework\Attributes\Test]
+    public function itCanEnableSponsorOnATicket()
+    {
+        $base = [
+            'event_uuid' => $this->testEvent->uuid,
+            'schedule_time_uuid' => $this->testScheduleTime->uuid,
+            'schedule_uuid' => $this->testSchedule->uuid,
+            'name' => 'Sponsor Admission',
+            'price' => 0,
+            'is_bundle' => false,
+            'is_unlimited' => false,
+            'display_order' => 1,
+            'max_ticket' => 100,
+        ];
+
+        // Sponsor defaults to disabled, and the Send Sponsor endpoint rejects it.
+        $created = $this->withHeaders(['Authorization' => 'Bearer ' . $this->adminToken])
+            ->postJson('/api/v1/event-tickets', $base)
+            ->assertStatus(201)
+            ->assertJsonPath('data.is_sponsor', false);
+
+        $ticketUuid = $created->json('data.uuid');
+
+        // Creating with Sponsor enabled persists and is returned by the API.
+        $sponsorCreated = $this->withHeaders(['Authorization' => 'Bearer ' . $this->adminToken])
+            ->postJson('/api/v1/event-tickets', [
+                ...$base,
+                'code' => 'SPONSOR001',
+                'is_sponsor' => true,
+                'with_terms_and_conditions' => true,
+                'terms_and_conditions' => 'Sponsor guests must present this ticket at the entrance.',
+            ])
+            ->assertStatus(201)
+            ->assertJsonPath('data.is_sponsor', true)
+            ->assertJsonPath('data.terms_and_conditions', 'Sponsor guests must present this ticket at the entrance.');
+
+        $this->assertDatabaseHas('event_tickets', [
+            'uuid' => $ticketUuid,
+            'is_sponsor' => false,
+        ]);
+        $this->assertDatabaseHas('event_tickets', [
+            'uuid' => $sponsorCreated->json('data.uuid'),
+            'is_sponsor' => true,
+        ]);
+    }
+
+    #[\PHPUnit\Framework\Attributes\Test]
     public function itCanCreateABundleEventTicketWithCoupons()
     {
         $eventTicketData = [

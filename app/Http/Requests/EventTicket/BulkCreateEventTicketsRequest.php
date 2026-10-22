@@ -77,6 +77,7 @@ class BulkCreateEventTicketsRequest extends FormRequest
             ],
             'tickets.*.name' => ['required', 'string', 'max:255'],
             'tickets.*.ticket_kind' => ['nullable', 'string', Rule::in(['regular', 'gift_certificate'])],
+            'tickets.*.is_sponsor' => ['nullable', 'boolean'],
             'tickets.*.description' => ['nullable', 'string'],
             'tickets.*.with_terms_and_conditions' => ['nullable', 'boolean'],
             'tickets.*.terms_and_conditions' => ['nullable', 'string', 'max:5000'],

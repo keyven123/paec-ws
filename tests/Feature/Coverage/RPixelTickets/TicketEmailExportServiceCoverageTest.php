@@ -47,7 +47,7 @@ class TicketEmailExportServiceCoverageTest extends TestCase
         $this->app->useStoragePath($this->sandbox . DIRECTORY_SEPARATOR . 'storage');
         $this->app->usePublicPath($this->sandbox . DIRECTORY_SEPARATOR . 'public');
 
-        foreach (['pdf.ticket-email-card', 'pdf.ticket-coupons-email-pack'] as $name) {
+        foreach (['pdf.ticket-email-card', 'pdf.ticket-coupons-email-pack', 'pdf.sponsor-ticket-page'] as $name) {
             View::composer($name, function ($view) use ($name) {
                 $this->viewData[$name] = $view->getData();
             });
@@ -204,6 +204,26 @@ class TicketEmailExportServiceCoverageTest extends TestCase
         $this->assertSame($this->qrFileSrc($cacheFile), $data['qrImageSrc']);
         $this->assertSame('Date of visit', $data['dateLabel']);
         $this->assertSame('Attendee', $data['attendeeName']);
+    }
+
+    #[Test]
+    public function buildSponsorPageAttachmentPresentsAGiftCertificate(): void
+    {
+        FunctionShims::override('extension_loaded', fn (string $ext) => $ext === 'imagick' ? false : \extension_loaded($ext));
+        [$transaction, $ticket] = $this->makeTicket();
+        $ticket->load('event');
+
+        $result = $this->service()->buildSponsorPageAttachment($transaction, $ticket);
+
+        $this->assertSame('application/pdf', $result['mime']);
+        $this->assertSame('gift-certificate-ticket-summer_jam_2026-' . $this->idHex($ticket) . '.pdf', $result['filename']);
+        $this->assertStringStartsWith('%PDF-', $result['data']);
+
+        $data = $this->viewData['pdf.sponsor-ticket-page'];
+        $this->assertSame('SPONSOR GIFT CERTIFICATE', $data['ticketHeaderLabel']);
+        $this->assertSame('SPONSOR GIFT CERTIFICATE', $data['ticketPassLabel']);
+        $this->assertSame('This is your gift certificate ticket. Do not duplicate.', $data['ticketFooterText']);
+        $this->assertSame('Gift certificate admission', $data['termsClosingLabel']);
     }
 
     #[Test]
