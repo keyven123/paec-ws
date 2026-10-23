@@ -50,12 +50,12 @@
                 <tr>
                     <td style="padding:14pt 16pt 8pt 16pt; text-align:center; border-bottom:1.5pt dashed #c4b5fd;">
                         @if (! empty($siteLogoDataUri))
-                            <img src="{!! $siteLogoDataUri !!}" alt="Activity logo" style="width:130pt; height:auto; max-height:56pt;">
+                            <img src="{!! $siteLogoDataUri !!}" alt="Activity logo" style="max-width:150pt; max-height:58pt; width:auto; height:auto;">
                         @else
                             <p style="margin:0; font-size:16px; font-weight:bold; color:#7c3aed;">{{ $eventName }}</p>
                         @endif
                         <p style="margin:4pt 0 0 0; font-size:8px; font-weight:bold; letter-spacing:1px; color:#f97316;">
-                            {{ $ticketHeaderLabel ?? 'SPONSOR E-TICKET' }}
+                            {{ $ticketHeaderLabel ?? 'SPONSOR GIFT CERTIFICATE' }}
                         </p>
                     </td>
                 </tr>
@@ -166,7 +166,7 @@
                 <tr>
                     <td style="border:2pt solid #7c3aed; border-radius:6pt; overflow:hidden; height:240pt; background:#faf5ff; text-align:center; vertical-align:middle;">
                         @if (! empty($eventImageDataUri))
-                            <img src="{{ $eventImageDataUri }}" alt="Event" style="width:100%; height:240pt;">
+                            <img src="{{ $eventImageDataUri }}" alt="Event" style="width:100%; height:240pt; display:block;">
                         @else
                             <div style="padding:90pt 16pt;">
                                 <p style="margin:0; font-size:12px; font-weight:bold; color:#7c3aed;">{{ $eventName }}</p>

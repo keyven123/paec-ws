@@ -23,6 +23,7 @@ class EventTicketResource extends JsonResource
             'code' => $this->code,
             'name' => $this->name,
             'ticket_kind' => $this->ticket_kind ?: 'regular',
+            'is_sponsor' => (bool) $this->is_sponsor,
             'description' => $this->description,
             'terms_and_conditions' => $this->terms_and_conditions,
             'price' => $this->price,

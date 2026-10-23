@@ -24,6 +24,11 @@ final class TicketEmailExportService
 
     private const THUMBNAIL_HEIGHT = 400;
 
+    /** Sponsor/gift page poster frame (right column, ~235pt × 240pt). */
+    private const SPONSOR_POSTER_WIDTH = 470;
+
+    private const SPONSOR_POSTER_HEIGHT = 480;
+
     public function __construct(
         private readonly TicketQrPngService $qrPngService,
     ) {
@@ -77,7 +82,8 @@ final class TicketEmailExportService
     }
 
     /**
-     * Full A4 sponsor ticket page (TicketNet-style layout, PAEC theme).
+     * Full A4 sponsor e-gift page (TicketNet-style layout, PAEC theme).
+     * Sponsor e-gifts are presented as a GIFT CERTIFICATE on the attachment.
      *
      * @return array{data: string, filename: string, mime: string}|null
      */
@@ -90,7 +96,7 @@ final class TicketEmailExportService
         try {
             $html = view(
                 'pdf.sponsor-ticket-page',
-                $this->sponsorPageViewData($transaction, $ticket, $ticketIndex, $ticketCount),
+                $this->sponsorPageViewData($transaction, $ticket, $ticketIndex, $ticketCount, 'sponsor_gift'),
             )->render();
 
             $options = new Options;
@@ -105,7 +111,7 @@ final class TicketEmailExportService
             $dompdf->render();
             $pdf = $dompdf->output();
 
-            $filenameBase = 'sponsor-' . $this->attachmentBaseName($transaction, $ticket);
+            $filenameBase = 'gift-certificate-' . $this->attachmentBaseName($transaction, $ticket);
 
             $png = $this->pdfBlobToPng($pdf);
             if ($png !== null) {
@@ -293,7 +299,10 @@ final class TicketEmailExportService
         int $ticketCount,
         string $variant = 'sponsor',
     ): array {
-        $isGift = $variant === 'gift_certificate';
+        // Sponsor e-gifts share the gift certificate presentation; only a
+        // purchased gift certificate shows its price instead of COMPLIMENTARY.
+        $isGiftDesign = $variant === 'gift_certificate' || $variant === 'sponsor_gift';
+        $isPurchasedGift = $variant === 'gift_certificate';
         $base = $this->viewData($transaction, $ticket);
         $event = $transaction->relationLoaded('event') && $transaction->event
             ? $transaction->event
@@ -307,25 +316,36 @@ final class TicketEmailExportService
             ?? $this->resolveLocalImageSrcForDompdf(public_path('images/logo/paec-logo.png'))
             ?? $this->resolveLocalImageSrcForDompdf($this->qrPngService->logoAbsolutePath());
 
-        $termsText = $this->ticketTermsText($ticket, $event?->event_description, $isGift);
+        $termsText = $this->ticketTermsText($ticket, $event?->event_description, $isGiftDesign);
         $termsLength = Str::length($termsText);
 
         return array_merge($base, [
+            // Centre-crop the poster to the sponsor page frame so it fills
+            // the box exactly — Dompdf has no object-fit and would stretch it.
+            'eventImageDataUri' => $this->fitDataUriImageToFrame(
+                $base['eventImageDataUri'] ?? null,
+                self::SPONSOR_POSTER_WIDTH,
+                self::SPONSOR_POSTER_HEIGHT,
+            ),
             'termsFontSize' => $termsLength <= 700 ? 8.5 : ($termsLength <= 1400 ? 7.5 : ($termsLength <= 2200 ? 6.8 : 6.4)),
             'organizationName' => strtoupper((string) $organizationName),
             'sectionLabel' => $ticket->eventTicket?->name ?? 'GA',
             'ticketIndex' => max(1, $ticketIndex),
             'ticketCount' => max(1, $ticketCount),
-            'priceFormatted' => ! $isGift && $isComplimentary
+            'priceFormatted' => ! $isPurchasedGift && $isComplimentary
                 ? 'COMPLIMENTARY'
                 : ($base['priceFormatted'] ?? '₱0.00'),
             'paecLogoSrc' => $paecLogoSrc,
-            'ticketHeaderLabel' => $isGift ? 'GIFT CERTIFICATE E-TICKET' : 'SPONSOR E-TICKET',
-            'ticketPassLabel' => $isGift ? 'GIFT CERTIFICATE' : 'SPONSOR PASS',
-            'ticketFooterText' => $isGift
+            'ticketHeaderLabel' => $variant === 'sponsor_gift'
+                ? 'SPONSOR GIFT CERTIFICATE'
+                : ($isGiftDesign ? 'GIFT CERTIFICATE E-TICKET' : 'SPONSOR E-TICKET'),
+            'ticketPassLabel' => $variant === 'sponsor_gift'
+                ? 'SPONSOR GIFT CERTIFICATE'
+                : ($isGiftDesign ? 'GIFT CERTIFICATE' : 'SPONSOR PASS'),
+            'ticketFooterText' => $isGiftDesign
                 ? 'This is your gift certificate ticket. Do not duplicate.'
                 : 'This is your sponsor ticket. Do not duplicate.',
-            'termsClosingLabel' => $isGift
+            'termsClosingLabel' => $isGiftDesign
                 ? 'Gift certificate admission'
                 : 'Complimentary sponsor admission',
             'termsText' => $termsText,
@@ -784,21 +804,24 @@ final class TicketEmailExportService
     }
 
     /**
-     * Centre-crops the event image to the ticket's image frame and shrinks it, keeping attachments small.
+     * Centre-crops the event image to the given frame and shrinks it, keeping attachments small.
      * Dompdf has no object-fit, so an uncropped image would be stretched. Returns null for non-images.
      */
-    private function ticketThumbnail(string $bin): ?string
-    {
+    private function ticketThumbnail(
+        string $bin,
+        int $targetWidth = self::THUMBNAIL_WIDTH,
+        int $targetHeight = self::THUMBNAIL_HEIGHT,
+    ): ?string {
         $image = @imagecreatefromstring($bin);
         if ($image === false) {
             return null;
         }
 
         [$width, $height] = [imagesx($image), imagesy($image)];
-        $cropWidth = (int) min($width, round($height * self::THUMBNAIL_WIDTH / self::THUMBNAIL_HEIGHT));
-        $cropHeight = (int) min($height, round($width * self::THUMBNAIL_HEIGHT / self::THUMBNAIL_WIDTH));
+        $cropWidth = (int) min($width, round($height * $targetWidth / $targetHeight));
+        $cropHeight = (int) min($height, round($width * $targetHeight / $targetWidth));
 
-        $canvas = imagecreatetruecolor(self::THUMBNAIL_WIDTH, self::THUMBNAIL_HEIGHT);
+        $canvas = imagecreatetruecolor($targetWidth, $targetHeight);
         imagefill($canvas, 0, 0, imagecolorallocate($canvas, 255, 255, 255));
         imagecopyresampled(
             $canvas,
@@ -807,8 +830,8 @@ final class TicketEmailExportService
             0,
             intdiv($width - $cropWidth, 2),
             intdiv($height - $cropHeight, 2),
-            self::THUMBNAIL_WIDTH,
-            self::THUMBNAIL_HEIGHT,
+            $targetWidth,
+            $targetHeight,
             $cropWidth,
             $cropHeight,
         );
@@ -817,6 +840,28 @@ final class TicketEmailExportService
         imagejpeg($canvas, null, 82);
 
         return (string) ob_get_clean();
+    }
+
+    /**
+     * Re-fit an already prepared data-URI image to a different frame
+     * (centre-crop, no stretching). Falls back to the original on failure.
+     */
+    private function fitDataUriImageToFrame(?string $dataUri, int $targetWidth, int $targetHeight): ?string
+    {
+        if ($dataUri === null || ! str_contains($dataUri, ',')) {
+            return $dataUri;
+        }
+
+        $bin = base64_decode(substr($dataUri, strpos($dataUri, ',') + 1), true);
+        if ($bin === false || $bin === '') {
+            return $dataUri;
+        }
+
+        $fitted = $this->ticketThumbnail($bin, $targetWidth, $targetHeight);
+
+        return $fitted !== null
+            ? 'data:image/jpeg;base64,' . base64_encode($fitted)
+            : $dataUri;
     }
 
     private function pdfBlobToPng(string $pdf): ?string

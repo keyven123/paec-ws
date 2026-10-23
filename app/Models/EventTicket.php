@@ -29,6 +29,7 @@ class EventTicket extends Model
         'code',
         'name',
         'ticket_kind',
+        'is_sponsor',
         'description',
         'terms_and_conditions',
         'price',
@@ -74,6 +75,11 @@ class EventTicket extends Model
         return $this->ticket_kind === self::TICKET_KINDS['GIFT_CERTIFICATE'];
     }
 
+    public function isSponsor(): bool
+    {
+        return (bool) $this->is_sponsor;
+    }
+
     public const OPERATION_DAYS = [
         'ANY' => 'any',
         'WEEKDAYS' => 'weekdays',
@@ -107,6 +113,7 @@ class EventTicket extends Model
         'markup_value' => 'decimal:2',
         'discount_value' => 'decimal:2',
         'is_bundle' => 'boolean',
+        'is_sponsor' => 'boolean',
         'bundle_quantity' => 'integer',
         'bundle_tickets' => 'array',
         'operation_custom_days' => 'array',
@@ -132,6 +139,7 @@ class EventTicket extends Model
         'code',
         'name',
         'ticket_kind',
+        'is_sponsor',
         'description',
         'terms_and_conditions',
         'price',

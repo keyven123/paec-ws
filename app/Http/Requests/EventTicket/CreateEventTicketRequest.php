@@ -52,6 +52,7 @@ class CreateEventTicketRequest extends FormRequest
             ],
             'name' => ['required', 'string', 'max:255'],
             'ticket_kind' => ['nullable', 'string', Rule::in(['regular', 'gift_certificate'])],
+            'is_sponsor' => ['nullable', 'boolean'],
             'description' => ['nullable', 'string'],
             'with_terms_and_conditions' => ['nullable', 'boolean'],
             'terms_and_conditions' => [

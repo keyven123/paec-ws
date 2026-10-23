@@ -42,7 +42,19 @@ class SendSponsorTicketsRequest extends FormRequest
             }
 
             $eventTicket = EventTicket::query()->where('uuid', $eventTicketUuid)->first();
-            if (! $eventTicket || $eventTicket->visit_policy === 'flexible') {
+            if (! $eventTicket) {
+                return;
+            }
+
+            if (! $eventTicket->isSponsor()) {
+                $validator->errors()->add(
+                    'event_ticket_uuid',
+                    'This ticket is not a sponsor ticket. Enable "Sponsor" in the ticket settings to send sponsor tickets.',
+                );
+                return;
+            }
+
+            if ($eventTicket->visit_policy === 'flexible') {
                 return;
             }
 
