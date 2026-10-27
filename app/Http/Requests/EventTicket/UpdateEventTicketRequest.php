@@ -113,6 +113,14 @@ class UpdateEventTicketRequest extends FormRequest
                 'date_format:H:i',
                 'after_or_equal:operation_hours_from',
             ],
+            'timeslot_duration_minutes' => ['nullable', 'integer', 'min:30', 'max:720'],
+            'timeslot_interval_minutes' => [
+                'nullable',
+                'integer',
+                'min:15',
+                'max:720',
+                'required_with:timeslot_duration_minutes',
+            ],
             'status' => ['nullable', 'string', Rule::in(GeneralConstants::GENERAL_STATUSES)],
             'bg_color' => ['nullable', 'string', 'max:255'],
             'with_coupon' => ['nullable', 'boolean'],
@@ -147,6 +155,28 @@ class UpdateEventTicketRequest extends FormRequest
                     );
                 }
             }
+
+            $duration = (int) ($this->input('timeslot_duration_minutes') ?? 0);
+            if ($duration > 0) {
+                $from = $this->input('operation_hours_from');
+                $to = $this->input('operation_hours_to');
+                if (! $from || ! $to) {
+                    $validator->errors()->add(
+                        'timeslot_duration_minutes',
+                        'Operation hours from and to are required when Timeslot is enabled.',
+                    );
+                } else {
+                    [$fh, $fm] = array_map('intval', explode(':', substr((string) $from, 0, 5)));
+                    [$th, $tm] = array_map('intval', explode(':', substr((string) $to, 0, 5)));
+                    $window = (($th * 60) + $tm) - (($fh * 60) + $fm);
+                    if ($window < $duration) {
+                        $validator->errors()->add(
+                            'timeslot_duration_minutes',
+                            'Timeslot duration must fit inside the operation hours window.',
+                        );
+                    }
+                }
+            }
         });
     }
 
@@ -163,6 +193,10 @@ class UpdateEventTicketRequest extends FormRequest
         }
         if ($this->has('with_terms_and_conditions') && ! $this->boolean('with_terms_and_conditions')) {
             $merge['terms_and_conditions'] = null;
+        }
+        if ($this->has('timeslot_duration_minutes') && ! $this->filled('timeslot_duration_minutes')) {
+            $merge['timeslot_duration_minutes'] = null;
+            $merge['timeslot_interval_minutes'] = null;
         }
         $this->merge($merge);
     }
@@ -183,6 +217,7 @@ class UpdateEventTicketRequest extends FormRequest
             'bundle_tickets.*.not_in' => 'A ticket cannot include itself in its bundle.',
             'event_uuid.exists' => 'The selected event does not exist.',
             'schedule_time_uuid.exists' => 'The selected schedule time does not exist.',
+            'timeslot_interval_minutes.required_with' => 'Timeslot interval is required when Timeslot is enabled.',
         ];
     }
 }

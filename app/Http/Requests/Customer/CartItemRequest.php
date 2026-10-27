@@ -122,7 +122,9 @@ class CartItemRequest extends FormRequest
                     } elseif (! $eventTicket->allowsVisitTime($visitTime)) {
                         $validator->errors()->add(
                             'visit_time',
-                            ($eventTicket->name ?: 'This ticket').' is outside operation hours.',
+                            $eventTicket->hasTimeslots()
+                                ? (($eventTicket->name ?: 'This ticket').' — please select a valid timeslot.')
+                                : (($eventTicket->name ?: 'This ticket').' is outside operation hours.'),
                         );
                     }
                 }
