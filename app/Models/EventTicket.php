@@ -46,6 +46,8 @@ class EventTicket extends Model
         'operation_custom_days',
         'operation_hours_from',
         'operation_hours_to',
+        'timeslot_duration_minutes',
+        'timeslot_interval_minutes',
         'available_from',
         'available_to',
         'feature_on_flash_sale',
@@ -117,6 +119,8 @@ class EventTicket extends Model
         'bundle_quantity' => 'integer',
         'bundle_tickets' => 'array',
         'operation_custom_days' => 'array',
+        'timeslot_duration_minutes' => 'integer',
+        'timeslot_interval_minutes' => 'integer',
         'available_from' => 'datetime',
         'available_to' => 'datetime',
         'feature_on_flash_sale' => 'boolean',
@@ -156,6 +160,8 @@ class EventTicket extends Model
         'operation_custom_days',
         'operation_hours_from',
         'operation_hours_to',
+        'timeslot_duration_minutes',
+        'timeslot_interval_minutes',
         'available_from',
         'available_to',
         'feature_on_flash_sale',
@@ -363,15 +369,14 @@ class EventTicket extends Model
     }
 
     /**
-     * Whether a HH:MM visit time falls inside operation hours (inclusive).
+     * Whether a HH:MM visit time is allowed for this ticket.
+     * With timeslots: must be an exact slot start whose window fits in operation hours.
+     * With operation hours only: any time inside the window.
      * No hours configured → any time is allowed.
      */
     public function allowsVisitTime(?string $visitTime): bool
     {
-        $from = $this->formatOperationTime($this->operation_hours_from);
-        $to = $this->formatOperationTime($this->operation_hours_to);
-
-        if (! $from && ! $to) {
+        if (! $this->hasOperationHours()) {
             return true;
         }
 
@@ -380,6 +385,13 @@ class EventTicket extends Model
         }
 
         $time = substr($visitTime, 0, 5);
+
+        if ($this->hasTimeslots()) {
+            return in_array($time, $this->timeslotStartTimes(), true);
+        }
+
+        $from = $this->formatOperationTime($this->operation_hours_from);
+        $to = $this->formatOperationTime($this->operation_hours_to);
         if ($from && $time < $from) {
             return false;
         }
@@ -407,6 +419,72 @@ class EventTicket extends Model
     {
         return $this->formatOperationTime($this->operation_hours_from) !== null
             || $this->formatOperationTime($this->operation_hours_to) !== null;
+    }
+
+    public function hasTimeslots(): bool
+    {
+        return $this->hasOperationHours()
+            && (int) ($this->timeslot_duration_minutes ?? 0) > 0;
+    }
+
+    /**
+     * Valid timeslot start times (HH:mm) that fit inside operation hours.
+     * Example: hours 16:00–22:00, duration 180, interval 60 → 16:00, 17:00, 18:00, 19:00.
+     *
+     * @return list<string>
+     */
+    public function timeslotStartTimes(): array
+    {
+        $duration = (int) ($this->timeslot_duration_minutes ?? 0);
+        if ($duration <= 0) {
+            return [];
+        }
+
+        $from = $this->formatOperationTime($this->operation_hours_from) ?? '00:00';
+        $to = $this->formatOperationTime($this->operation_hours_to) ?? '23:59';
+        $interval = max(1, (int) ($this->timeslot_interval_minutes ?? 60));
+
+        [$fh, $fm] = array_map('intval', explode(':', $from));
+        [$th, $tm] = array_map('intval', explode(':', $to));
+        $startMins = ($fh * 60) + $fm;
+        $endMins = ($th * 60) + $tm;
+        if ($endMins < $startMins) {
+            return [];
+        }
+
+        $slots = [];
+        for ($mins = $startMins; ($mins + $duration) <= $endMins; $mins += $interval) {
+            $slots[] = sprintf('%02d:%02d', intdiv($mins, 60), $mins % 60);
+        }
+
+        return $slots;
+    }
+
+    /**
+     * Human-readable timeslot ranges for the given start time, e.g. "4:00 PM – 7:00 PM".
+     */
+    public function timeslotRangeLabel(?string $visitTime): ?string
+    {
+        if (! $this->hasTimeslots() || $visitTime === null || $visitTime === '') {
+            return null;
+        }
+
+        $start = substr($visitTime, 0, 5);
+        if (! in_array($start, $this->timeslotStartTimes(), true)) {
+            return null;
+        }
+
+        [$sh, $sm] = array_map('intval', explode(':', $start));
+        $endMins = ($sh * 60) + $sm + (int) $this->timeslot_duration_minutes;
+        $end = sprintf('%02d:%02d', intdiv($endMins, 60) % 24, $endMins % 60);
+
+        return $this->formatClockLabel($start) . ' – ' . $this->formatClockLabel($end);
+    }
+
+    private function formatClockLabel(string $hhmm): string
+    {
+        return Carbon::createFromFormat('H:i', substr($hhmm, 0, 5))
+            ->format('g:i A');
     }
 
     /**

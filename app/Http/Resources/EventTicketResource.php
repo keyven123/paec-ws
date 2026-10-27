@@ -46,6 +46,8 @@ class EventTicketResource extends JsonResource
                 : [],
             'operation_hours_from' => $this->formatOperationTime($this->operation_hours_from),
             'operation_hours_to' => $this->formatOperationTime($this->operation_hours_to),
+            'timeslot_duration_minutes' => $this->timeslot_duration_minutes,
+            'timeslot_interval_minutes' => $this->timeslot_interval_minutes,
             'bg_color' => $this->bg_color,
             'display_order' => $this->display_order,
             'with_coupon' => $this->coupons->count() > 0,

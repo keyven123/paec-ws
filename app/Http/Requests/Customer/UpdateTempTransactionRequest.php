@@ -150,7 +150,9 @@ class UpdateTempTransactionRequest extends FormRequest
                     } elseif (! $eventTicket->allowsVisitTime($visitTime)) {
                         $validator->errors()->add(
                             "tickets.{$index}.visit_time",
-                            $eventTicket->name.' is outside operation hours.',
+                            $eventTicket->hasTimeslots()
+                                ? $eventTicket->name.' — please select a valid timeslot.'
+                                : $eventTicket->name.' is outside operation hours.',
                         );
                     }
                 }
