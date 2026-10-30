@@ -10,4 +10,9 @@ Artisan::command('inspire', function () {
 
 Schedule::command('app:expire-tickets')->dailyAt('00:10');
 Schedule::command('app:auto-verify-pending-transaction')->everyFiveMinutes()->withoutOverlapping();
+// End-of-day sweep: re-check today's pending + cancelled orders in case payment pushed through.
+Schedule::command('app:auto-verify-pending-transaction --include-cancelled --today')
+    ->dailyAt('23:59')
+    ->timezone(config('app.timezone', 'Asia/Manila'))
+    ->withoutOverlapping();
 Schedule::command('app:send-cart-reminders')->everyFiveMinutes()->withoutOverlapping();
