@@ -1187,14 +1187,18 @@ class TempTransactionController extends Controller
     }
 
     /**
-     * Complete payment after successful payment confirmation
+     * Complete payment after successful payment confirmation.
+     * Admins may also re-check cancelled/failed orders when the gateway
+     * already took the customer's money (payment push-through).
      */
     public function completePayment(string $transactionUuid): JsonResponse
     {
         $transaction = Transaction::where('uuid', $transactionUuid)->firstOrFail();
         $this->assertCanManageTransaction($transaction);
 
-        return $this->reconcileGatewayPayment($transaction);
+        $forceReverify = request()->user() instanceof AdminUser;
+
+        return $this->reconcileGatewayPayment($transaction, $forceReverify);
     }
 
     public function guestCompletePayment(GuestTransactionPaymentRequest $request, string $transactionUuid): JsonResponse
@@ -1206,11 +1210,14 @@ class TempTransactionController extends Controller
     }
 
     /**
-     * Re-checks a pending payment with its gateway for scheduled jobs, which have no signed-in viewer.
+     * Re-checks a pending (or cancelled) payment with its gateway for scheduled jobs.
      */
     public function verifyPendingPayment(string $transactionUuid): JsonResponse
     {
-        return $this->reconcileGatewayPayment(Transaction::where('uuid', $transactionUuid)->firstOrFail());
+        return $this->reconcileGatewayPayment(
+            Transaction::where('uuid', $transactionUuid)->firstOrFail(),
+            forceReverify: true,
+        );
     }
 
     /**
@@ -1257,24 +1264,38 @@ class TempTransactionController extends Controller
 
     /**
      * Check the transaction against its payment gateway and issue the tickets once it is paid.
+     *
+     * @param  bool  $forceReverify  When true (admin / cron), also re-check cancelled or
+     *                               failed local status in case the gateway already took payment.
      */
-    private function reconcileGatewayPayment(Transaction $transaction): JsonResponse
+    private function reconcileGatewayPayment(Transaction $transaction, bool $forceReverify = false): JsonResponse
     {
         try {
             if ($transaction->payment_status === Transaction::PAYMENT_STATUS['PAID']) {
                 return $this->paidTransactionResponse($transaction, 'Payment already completed');
             }
 
-            if (in_array($transaction->payment_status, [
+            $wasCancelledOrFailed = in_array($transaction->payment_status, [
                 Transaction::PAYMENT_STATUS['CANCELLED'],
                 Transaction::PAYMENT_STATUS['FAILED'],
-            ], true)) {
+            ], true);
+
+            if ($wasCancelledOrFailed && ! $forceReverify) {
                 return response()->json([
                     'success' => false,
                     'payment_status' => $transaction->payment_status,
                     'transaction' => $transaction,
                     'message' => 'This order was cancelled and no payment was taken. Please start a new order.',
                 ]);
+            }
+
+            if ($wasCancelledOrFailed && empty($transaction->payment_id)) {
+                return response()->json([
+                    'success' => false,
+                    'payment_status' => $transaction->payment_status,
+                    'transaction' => $transaction,
+                    'message' => 'This order has no gateway payment reference to verify.',
+                ], 400);
             }
 
             // Handle free tickets - bypass payment verification
@@ -1357,6 +1378,20 @@ class TempTransactionController extends Controller
             }
 
             if ($resolution === PaymentStatusResolver::RESOLUTION_FAILED) {
+                // Re-verify of an already-cancelled order: gateway still says unpaid — leave as-is.
+                if ($wasCancelledOrFailed) {
+                    return response()->json([
+                        'success' => false,
+                        'payment_status' => $transaction->payment_status,
+                        'transaction' => $transaction->fresh()->load([
+                            'event',
+                            'transactionOrders.eventTicket',
+                            'user',
+                        ]),
+                        'message' => 'Gateway confirms no payment was taken for this cancelled order.',
+                    ], 200);
+                }
+
                 foreach ($this->openPaymentGroup($transaction) as $order) {
                     $order->update([
                         'status' => Transaction::STATUS['CANCELLED'],
@@ -1384,7 +1419,15 @@ class TempTransactionController extends Controller
                 ], 200);
             }
 
-            foreach ($this->openPaymentGroup($transaction) as $order) {
+            $ordersToFulfill = $forceReverify
+                ? $this->reverifyPaymentGroup($transaction)
+                : $this->openPaymentGroup($transaction);
+
+            if ($ordersToFulfill->isEmpty()) {
+                $ordersToFulfill = collect([$transaction]);
+            }
+
+            foreach ($ordersToFulfill as $order) {
                 $order->update([
                     'status' => Transaction::STATUS['ACTIVE'],
                     'payment_status' => Transaction::PAYMENT_STATUS['PAID'],
@@ -1405,7 +1448,11 @@ class TempTransactionController extends Controller
             }
             $this->removePaidCartItems($transaction);
 
-            return $this->paidTransactionResponse($transaction, 'Payment completed successfully', $gatewayStatus);
+            $message = $wasCancelledOrFailed
+                ? 'Payment verified with the gateway. This previously cancelled order is now marked paid.'
+                : 'Payment completed successfully';
+
+            return $this->paidTransactionResponse($transaction, $message, $gatewayStatus);
         } catch (\Exception $e) {
             Log::error('Payment completion failed', [
                 'transaction_uuid' => $transaction->uuid,
@@ -1468,6 +1515,24 @@ class TempTransactionController extends Controller
                 Transaction::PAYMENT_STATUS['CANCELLED'],
                 Transaction::PAYMENT_STATUS['FAILED'],
             ])
+            ->get();
+    }
+
+    /**
+     * Orders in the same payment group that are not paid yet — including cancelled/failed —
+     * used when admin/cron re-verifies a push-through payment.
+     *
+     * @return \Illuminate\Support\Collection<int, Transaction>
+     */
+    private function reverifyPaymentGroup(Transaction $transaction)
+    {
+        if (! $transaction->payment_group_uuid) {
+            return collect([$transaction]);
+        }
+
+        return Transaction::query()
+            ->where('payment_group_uuid', $transaction->payment_group_uuid)
+            ->where('payment_status', '!=', Transaction::PAYMENT_STATUS['PAID'])
             ->get();
     }
 
