@@ -492,7 +492,11 @@ class CartCheckoutTest extends TestCase
         $this->fakePaynamics('GR003');
 
         $this->actingAs($this->customer, 'api')->postJson("/api/v1/customer/transactions/{$lead}/complete")
-            ->assertJsonPath('message', 'Payment failed');
+            ->assertOk()
+            ->assertJsonPath(
+                'message',
+                'Payment was cancelled or failed on the gateway. This order has been marked failed.',
+            );
 
         $this->assertSame(2, Transaction::where('payment_status', Transaction::PAYMENT_STATUS['FAILED'])->count());
         $this->assertSame(0, Ticket::count());

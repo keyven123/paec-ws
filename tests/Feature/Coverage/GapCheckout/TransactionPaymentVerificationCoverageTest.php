@@ -146,17 +146,20 @@ class TransactionPaymentVerificationCoverageTest extends TestCase
     }
 
     #[Test]
-    public function verifyingReturns400WhenTheGatewayStatusCannotBeRead(): void
+    public function verifyingReturnsOkWhenTheGatewayStatusCannotBeRead(): void
     {
         $transaction = $this->createTransaction($this->customer, $this->event, ['payment_id' => 'ORDER-DOWN']);
         $this->fakePaypal([
             'api-m.sandbox.paypal.com/v2/checkout/orders/ORDER-DOWN' => Http::response(['name' => 'INTERNAL_SERVER_ERROR'], 500),
         ]);
 
-        $this->complete($transaction)
-            ->assertStatus(400)
-            ->assertExactJson(['success' => false, 'message' => 'Unable to verify payment status']);
+        $response = $this->complete($transaction)
+            ->assertOk()
+            ->assertJsonPath('success', false)
+            ->assertJsonPath('payment_status', Transaction::PAYMENT_STATUS['PENDING'])
+            ->assertJsonPath('transaction.uuid', $transaction->uuid);
 
+        $this->assertStringContainsString('Unable to verify payment status', (string) $response->json('message'));
         $this->assertSame(Transaction::PAYMENT_STATUS['PENDING'], $transaction->fresh()->payment_status);
     }
 
@@ -224,7 +227,7 @@ class TransactionPaymentVerificationCoverageTest extends TestCase
 
         $response = $this->complete($transaction);
 
-        $response->assertStatus(400)
+        $response->assertOk()
             ->assertJsonPath('success', false)
             ->assertJsonPath('payment_status', 'APPROVED')
             ->assertJsonPath('transaction.uuid', $transaction->uuid);
@@ -247,8 +250,8 @@ class TransactionPaymentVerificationCoverageTest extends TestCase
         $this->complete($transaction)
             ->assertOk()
             ->assertJsonPath('success', false)
-            ->assertJsonPath('payment_status', 'VOIDED')
-            ->assertJsonPath('message', 'Payment failed')
+            ->assertJsonPath('payment_status', Transaction::PAYMENT_STATUS['FAILED'])
+            ->assertJsonPath('message', 'Payment was cancelled or failed on the gateway. This order has been marked failed.')
             ->assertJsonPath('transaction.payment_status', Transaction::PAYMENT_STATUS['FAILED']);
 
         $fresh = $transaction->fresh();
@@ -259,17 +262,20 @@ class TransactionPaymentVerificationCoverageTest extends TestCase
     }
 
     #[Test]
-    public function verifyingReturns500WhenTheProviderIsUnsupported(): void
+    public function verifyingReturnsOkWhenTheProviderIsUnsupported(): void
     {
         Log::spy();
         $transaction = $this->createTransaction($this->customer, $this->event, ['payment_provider' => 'cash']);
 
         $this->complete($transaction)
-            ->assertStatus(500)
-            ->assertExactJson(['success' => false, 'message' => 'Payment completion failed']);
+            ->assertOk()
+            ->assertJsonPath('success', false)
+            ->assertJsonPath('message', 'Unable to verify payment status: payment gateway is not available for this order.')
+            ->assertJsonPath('payment_status', Transaction::PAYMENT_STATUS['PENDING']);
 
-        Log::shouldHaveReceived('error')->with('Payment completion failed', Mockery::on(
-            fn (array $context) => $context['error'] === 'Unsupported payment provider: cash'
+        Log::shouldHaveReceived('error')->with('Payment verification: no gateway service', Mockery::on(
+            fn (array $context) => $context['transaction_uuid'] === $transaction->uuid
+                && str_contains((string) $context['error'], 'Unsupported payment provider: cash')
         ));
     }
 
