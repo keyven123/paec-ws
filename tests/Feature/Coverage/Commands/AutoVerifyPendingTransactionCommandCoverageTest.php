@@ -44,11 +44,11 @@ class AutoVerifyPendingTransactionCommandCoverageTest extends TestCase
             $mock->shouldReceive('verifyPendingPayment')->once()->with($verified->uuid)
                 ->andReturn(response()->json(['success' => true, 'message' => 'Payment completed']));
             $mock->shouldReceive('verifyPendingPayment')->once()->with($stillPending->uuid)
-                ->andReturn(response()->json(['success' => false, 'message' => 'Payment is still pending'], 202));
+                ->andReturn(response()->json(['success' => false, 'message' => 'Payment is still pending on the gateway. No charge was confirmed yet.']));
             $mock->shouldReceive('verifyPendingPayment')->once()->with($failed->uuid)
-                ->andReturn(response()->json(['success' => false, 'message' => 'Payment failed'], 400));
+                ->andReturn(response()->json(['success' => false, 'message' => 'Payment was cancelled or failed on the gateway. This order has been marked failed.']));
             $mock->shouldReceive('verifyPendingPayment')->once()->with($unexpected->uuid)
-                ->andReturn(response()->json(['success' => false], 422));
+                ->andReturn(response()->json(['success' => false, 'message' => 'Unable to verify payment status: gateway timeout']));
             $mock->shouldReceive('verifyPendingPayment')->once()->with($throws->uuid)
                 ->andThrow(new RuntimeException('Gateway timeout'));
         });
@@ -59,7 +59,7 @@ class AutoVerifyPendingTransactionCommandCoverageTest extends TestCase
             ->expectsOutputToContain("Verified transaction #{$verified->uuid}.")
             ->expectsOutputToContain("Transaction #{$stillPending->uuid} is still pending on the gateway.")
             ->expectsOutputToContain("Transaction #{$failed->uuid} was cancelled after gateway reported failure.")
-            ->expectsOutputToContain("Verification did not complete for transaction #{$unexpected->uuid}. HTTP 422 - Unknown response from payment service.")
+            ->expectsOutputToContain("Verification did not complete for transaction #{$unexpected->uuid}. HTTP 200 - Unable to verify payment status: gateway timeout")
             ->expectsOutputToContain("Exception while verifying transaction #{$throws->uuid}: Gateway timeout")
             ->expectsOutputToContain('Verified 1, still pending 1, cancelled after gateway failure 1, gateway unpaid 0.')
             ->assertSuccessful();
