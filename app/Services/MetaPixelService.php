@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Http\Controllers\MetaPixelSettingController;
 use App\Models\CmsSetting;
 use App\Models\Event;
+use App\Models\MetaPixelEventLog;
 use App\Models\Transaction;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -77,6 +78,15 @@ class MetaPixelService
                 'event_uuid' => $eventData['custom_data']['content_ids'][0] ?? null,
             ]);
 
+            $this->recordEventLog([
+                'event_name' => $eventName,
+                'source' => 'capi',
+                'status' => 'skipped',
+                'pixel_id' => $pixelId !== '' ? $pixelId : null,
+                'event_data' => $eventData,
+                'error_message' => 'Missing pixel ID or access token',
+            ]);
+
             return false;
         }
 
@@ -97,6 +107,19 @@ class MetaPixelService
             ])->post("https://graph.facebook.com/v18.0/{$pixelId}/events", $payload);
 
             if ($response->successful()) {
+                $this->recordEventLog([
+                    'event_name' => $eventName,
+                    'source' => 'capi',
+                    'status' => 'sent',
+                    'pixel_id' => $pixelId,
+                    'event_data' => $eventData,
+                    'http_status' => $response->status(),
+                    'payload' => [
+                        'event' => $conversionData,
+                        'meta' => $response->json(),
+                    ],
+                ]);
+
                 return true;
             }
 
@@ -117,6 +140,17 @@ class MetaPixelService
                 'response' => $response->body(),
             ]);
 
+            $this->recordEventLog([
+                'event_name' => $eventName,
+                'source' => 'capi',
+                'status' => 'failed',
+                'pixel_id' => $pixelId,
+                'event_data' => $eventData,
+                'http_status' => $response->status(),
+                'error_message' => is_string($errorMessage) ? $errorMessage : json_encode($errorMessage),
+                'payload' => ['event' => $conversionData, 'meta' => $errorBody],
+            ]);
+
             // Error code 100 with subcode 33 usually means permissions issue or invalid access token
             if ($errorCode == 100 && $errorSubcode == 33) {
                 Log::error('Global Meta Pixel access token is invalid or missing permissions.', [
@@ -134,7 +168,56 @@ class MetaPixelService
                 'error' => $e->getMessage(),
             ]);
 
+            $this->recordEventLog([
+                'event_name' => $eventName,
+                'source' => 'capi',
+                'status' => 'failed',
+                'pixel_id' => $pixelId,
+                'event_data' => $eventData,
+                'error_message' => $e->getMessage(),
+            ]);
+
             return false;
+        }
+    }
+
+    /**
+     * Persist an audit row for admin Meta Pixel logs.
+     *
+     * @param  array<string, mixed>  $input
+     */
+    public function recordEventLog(array $input): void
+    {
+        try {
+            $eventData = is_array($input['event_data'] ?? null) ? $input['event_data'] : [];
+            $custom = is_array($eventData['custom_data'] ?? null) ? $eventData['custom_data'] : [];
+            $contentIds = $custom['content_ids'] ?? [];
+            $eventUuid = is_array($contentIds) ? ($contentIds[0] ?? null) : null;
+
+            MetaPixelEventLog::query()->create([
+                'event_name' => (string) ($input['event_name'] ?? 'Unknown'),
+                'source' => (string) ($input['source'] ?? 'capi'),
+                'status' => (string) ($input['status'] ?? 'sent'),
+                'pixel_id' => $input['pixel_id'] ?? null,
+                'event_id' => $input['event_id'] ?? ($eventData['event_id'] ?? null),
+                'content_name' => $input['content_name'] ?? ($custom['content_name'] ?? null),
+                'page_url' => $input['page_url'] ?? ($eventData['event_source_url'] ?? null),
+                'value' => $input['value'] ?? ($custom['value'] ?? null),
+                'currency' => $input['currency'] ?? ($custom['currency'] ?? null),
+                'transaction_uuid' => $input['transaction_uuid'] ?? null,
+                'event_uuid' => $input['event_uuid'] ?? $eventUuid,
+                'order_id' => $input['order_id'] ?? ($custom['order_id'] ?? null),
+                'http_status' => $input['http_status'] ?? null,
+                'error_message' => $input['error_message'] ?? null,
+                'payload' => $input['payload'] ?? null,
+                'ip_address' => $input['ip_address'] ?? (request()->ip()),
+                'user_agent' => $input['user_agent'] ?? (request()->userAgent() ? substr((string) request()->userAgent(), 0, 500) : null),
+            ]);
+        } catch (\Throwable $e) {
+            Log::warning('Failed to persist Meta Pixel event log', [
+                'error' => $e->getMessage(),
+                'event_name' => $input['event_name'] ?? null,
+            ]);
         }
     }
 
