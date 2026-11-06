@@ -130,9 +130,10 @@ class MetaPixelServiceCoverageTest extends TestCase
     }
 
     #[Test]
-    public function trackEventUsesEventSpecificPixelAndTestEventCode(): void
+    public function trackEventIgnoresPerActivityPixelAndUsesProjectConfig(): void
     {
         Http::fake([self::GRAPH . '*' => Http::response(['events_received' => 1], 200)]);
+        config(['services.meta.test_event_code' => 'GLOBALTEST']);
 
         $event = $this->createEvent([
             'track_event_meta' => true,
@@ -143,27 +144,28 @@ class MetaPixelServiceCoverageTest extends TestCase
 
         $this->assertTrue($this->service()->trackEvent('Lead', [], $event));
 
-        Http::assertSent(fn (Request $request) => $request->url() === self::GRAPH . 'EVENT_PIXEL/events'
-            && $request['access_token'] === 'EVENT_TOKEN'
-            && $request['test_event_code'] === 'TEST123');
+        Http::assertSent(fn (Request $request) => $request->url() === self::GRAPH . 'GLOBAL_PIXEL/events'
+            && $request['access_token'] === 'GLOBAL_TOKEN_abcdefghijklmnopqrstuvwxyz'
+            && $request['test_event_code'] === 'GLOBALTEST');
     }
 
     #[Test]
-    public function trackEventFallsBackToGlobalPixelWhenEventTrackingDisabled(): void
+    public function trackEventPrefersAdminCmsSettingsOverEnv(): void
     {
-        Http::fake([self::GRAPH . '*' => Http::response([], 200)]);
-        config(['services.meta.test_event_code' => 'GLOBALTEST']);
+        Http::fake([self::GRAPH . '*' => Http::response(['events_received' => 1], 200)]);
 
-        $event = $this->createEvent([
-            'track_event_meta' => false,
-            'meta_pixel_id' => 'EVENT_PIXEL',
-            'meta_pixel_key' => 'EVENT_TOKEN',
+        \App\Models\CmsSetting::setValue(\App\Http\Controllers\MetaPixelSettingController::SETTING_KEY, [
+            'enabled' => true,
+            'pixel_id' => 'CMS_PIXEL',
+            'access_token' => 'CMS_TOKEN_abcdefghijklmnopqrstuvwxyz',
+            'test_event_code' => 'CMSTEST',
         ]);
 
-        $this->assertTrue($this->service()->trackEvent('Lead', [], $event));
+        $this->assertTrue($this->service()->trackEvent('Lead', []));
 
-        Http::assertSent(fn (Request $request) => str_contains($request->url(), '/GLOBAL_PIXEL/events')
-            && $request['test_event_code'] === 'GLOBALTEST');
+        Http::assertSent(fn (Request $request) => $request->url() === self::GRAPH . 'CMS_PIXEL/events'
+            && $request['access_token'] === 'CMS_TOKEN_abcdefghijklmnopqrstuvwxyz'
+            && $request['test_event_code'] === 'CMSTEST');
     }
 
     #[Test]
@@ -222,7 +224,7 @@ class MetaPixelServiceCoverageTest extends TestCase
     }
 
     #[Test]
-    public function permissionErrorWithEventTokenLogsEventSpecificSuggestion(): void
+    public function permissionErrorStillLogsGlobalSuggestionEvenWithActivityFieldsPresent(): void
     {
         Http::fake([self::GRAPH . '*' => Http::response([
             'error' => ['message' => 'Unsupported post request', 'code' => 100, 'error_subcode' => 33],
@@ -239,11 +241,9 @@ class MetaPixelServiceCoverageTest extends TestCase
         $this->assertFalse($this->service()->trackEvent('Lead', [], $event));
 
         Log::shouldHaveReceived('error')->withArgs(
-            fn ($message, $context) => $message === 'Event-specific Meta Pixel access token is invalid or missing permissions.'
-                && $context['event_uuid'] === $event->uuid
-                && $context['event_name'] === 'Pixel Gala'
-                && $context['event_pixel_id'] === 'EVENT_PIXEL'
-                && $context['access_token_prefix'] === 'EVENT_TOKEN...'
+            fn ($message, $context) => $message === 'Global Meta Pixel access token is invalid or missing permissions.'
+                && $context['pixel_id'] === 'GLOBAL_PIXEL'
+                && str_contains((string) $context['suggestion'], 'GLOBAL_PIXEL')
         )->once();
     }
 
