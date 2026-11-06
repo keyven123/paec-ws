@@ -133,6 +133,8 @@ Route::prefix('v1')->group(function () {
 
             Route::get('/cms/footer', [\App\Http\Controllers\CmsController::class, 'publicFooter']);
             Route::get('/cms/meta-pixel', [\App\Http\Controllers\MetaPixelSettingController::class, 'publicShow']);
+            Route::post('/cms/meta-pixel/events', [\App\Http\Controllers\MetaPixelSettingController::class, 'publicLog'])
+                ->middleware('throttle:120,1');
             Route::get('/cms/pages', [\App\Http\Controllers\CmsController::class, 'publicPages']);
             Route::get('/cms/pages/{slug}', [\App\Http\Controllers\CmsController::class, 'publicShow']);
             Route::get('/careers', [\App\Http\Controllers\CareerPositionController::class, 'publicIndex']);

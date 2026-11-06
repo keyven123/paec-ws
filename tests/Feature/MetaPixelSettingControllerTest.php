@@ -111,6 +111,32 @@ class MetaPixelSettingControllerTest extends TestCase
     }
 
     #[Test]
+    public function browser_events_are_recorded_and_listed_for_admins(): void
+    {
+        $this->postJson('/api/v1/public/cms/meta-pixel/events', [
+            'event_name' => 'ViewContent',
+            'content_name' => 'Bari: The Abandoned Princess',
+            'page_url' => 'http://localhost:3000/attractions/boogie-bounce',
+            'content_ids' => ['evt-1'],
+            'value' => 0,
+            'currency' => 'PHP',
+        ])->assertOk()->assertJsonPath('success', true);
+
+        $this->asAdmin()
+            ->getJson('/api/v1/cms/meta-pixel/stats')
+            ->assertOk()
+            ->assertJsonPath('data.total', 1)
+            ->assertJsonPath('data.by_event.0.event_name', 'ViewContent');
+
+        $this->asAdmin()
+            ->getJson('/api/v1/cms/meta-pixel/logs')
+            ->assertOk()
+            ->assertJsonPath('data.0.event_name', 'ViewContent')
+            ->assertJsonPath('data.0.source', 'browser')
+            ->assertJsonPath('data.0.content_name', 'Bari: The Abandoned Princess');
+    }
+
+    #[Test]
     public function public_endpoint_exposes_pixel_id_but_never_the_token(): void
     {
         CmsSetting::setValue(MetaPixelSettingController::SETTING_KEY, [

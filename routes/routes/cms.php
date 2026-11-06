@@ -10,6 +10,8 @@ Route::prefix('cms')->group(function () {
         Route::get('/pages/{uuid}', [CmsController::class, 'showPage']);
         Route::get('/footer', [CmsController::class, 'showFooterSettings']);
         Route::get('/meta-pixel', [MetaPixelSettingController::class, 'show']);
+        Route::get('/meta-pixel/stats', [MetaPixelSettingController::class, 'stats']);
+        Route::get('/meta-pixel/logs', [MetaPixelSettingController::class, 'logs']);
     });
 
     Route::middleware(['can:cms-create'])->group(function () {
