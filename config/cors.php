@@ -50,8 +50,10 @@ return [
     })(),
 
     // Vercel production + preview / branch deploys: https://*.vercel.app
+    // PAEC storefront / admin on amusements.global (API is api.amusements.global).
     'allowed_origins_patterns' => [
         '#^https://[a-z0-9-]+\.vercel\.app$#',
+        '#^https://([a-z0-9-]+\.)?amusements\.global$#',
     ],
 
     'allowed_headers' => ['*'],
