@@ -27,7 +27,7 @@ Route::group(['prefix' => 'transactions', 'middleware' => 'auth:admin'], functio
         Route::delete('/', [TransactionController::class, 'destroy'])
             ->middleware('can:transactions-delete');
 
-        Route::post('/verify-payment', [TempTransactionController::class, 'completePayment'])
+        Route::post('/verify-payment', [TempTransactionController::class, 'verifyPayment'])
             ->middleware('can:transactions-execute');
 
         Route::post('/send-tickets', [TransactionController::class, 'sendTickets'])

@@ -8,7 +8,9 @@ use App\Models\AdminUser;
 use App\Models\Event;
 use App\Models\EventTicket;
 use App\Models\PaymentGateway;
+use App\Models\Permission;
 use App\Models\Role;
+use App\Models\RolePermission;
 use App\Models\Ticket;
 use App\Models\Transaction;
 use App\Notifications\PaymentCancelledNotification;
@@ -179,6 +181,37 @@ class PaynamicsCheckoutTest extends TestCase
     private function complete(Transaction $transaction)
     {
         return $this->postJson("/api/v1/public/transactions/{$transaction->uuid}/guest/complete", ['email' => self::GUEST_EMAIL]);
+    }
+
+    private function actingAsPaymentsAdmin()
+    {
+        $role = Role::create(['name' => 'Payments Admin', 'code' => 'payments_admin_'.uniqid()]);
+        $permission = Permission::firstOrCreate(
+            ['code' => 'transactions'],
+            ['name' => 'Transactions', 'available_access' => ['view', 'execute']],
+        );
+        RolePermission::create([
+            'role_uuid' => $role->uuid,
+            'permission_uuid' => $permission->uuid,
+            'access' => 'transactions-execute',
+        ]);
+        $admin = AdminUser::create([
+            'role_uuid' => $role->uuid,
+            'email' => 'verify-admin-'.uniqid().'@test.com',
+            'password' => 'password123',
+            'first_name' => 'Verify',
+            'last_name' => 'Admin',
+            'status' => GeneralConstants::GENERAL_STATUSES['ACTIVE'],
+            'email_verified_at' => now(),
+        ]);
+
+        return $this->withHeaders(['Authorization' => 'Bearer '.auth('admin')->login($admin)]);
+    }
+
+    private function adminVerify(Transaction $transaction)
+    {
+        return $this->actingAsPaymentsAdmin()
+            ->postJson("/api/v1/transactions/{$transaction->uuid}/verify-payment");
     }
 
     #[Test]
@@ -392,7 +425,7 @@ class PaynamicsCheckoutTest extends TestCase
         $this->complete($transaction)
             ->assertOk()
             ->assertJsonPath('success', false)
-            ->assertJsonPath('message', 'Payment is still pending');
+            ->assertJsonPath('message', 'Payment is still pending on the gateway. No charge was confirmed yet.');
 
         $this->assertSame(Transaction::PAYMENT_STATUS['PENDING'], $transaction->fresh()->payment_status);
     }
@@ -406,7 +439,7 @@ class PaynamicsCheckoutTest extends TestCase
             $this->complete($transaction)
                 ->assertOk()
                 ->assertJsonPath('success', false)
-                ->assertJsonPath('message', 'Payment failed');
+                ->assertJsonPath('message', 'Payment was cancelled or failed on the gateway. This order has been marked failed.');
 
             $this->assertSame(Transaction::PAYMENT_STATUS['FAILED'], $transaction->fresh()->payment_status);
         }
@@ -418,8 +451,9 @@ class PaynamicsCheckoutTest extends TestCase
         $transaction = $this->checkedOutTransaction('GR034', 'Card Stolen');
 
         $this->complete($transaction)
-            ->assertStatus(400)
-            ->assertJsonPath('message', 'Unable to verify payment status');
+            ->assertOk()
+            ->assertJsonPath('success', false)
+            ->assertJsonPath('message', 'Unable to verify payment status: Card Stolen');
 
         $this->assertSame(Transaction::PAYMENT_STATUS['PENDING'], $transaction->fresh()->payment_status);
     }
@@ -435,7 +469,10 @@ class PaynamicsCheckoutTest extends TestCase
             'response_message' => 'Transaction Successful',
         ])]);
 
-        $this->complete($transaction)->assertStatus(400);
+        $this->complete($transaction)
+            ->assertOk()
+            ->assertJsonPath('success', false)
+            ->assertJsonPath('message', 'Unable to verify payment status: Transaction Successful');
 
         $this->assertSame(Transaction::PAYMENT_STATUS['PENDING'], $transaction->fresh()->payment_status);
     }
@@ -449,8 +486,14 @@ class PaynamicsCheckoutTest extends TestCase
             ->push('Server error', 500)
             ->pushFailedConnection()]);
 
-        $this->complete($transaction)->assertStatus(400);
-        $this->complete($transaction)->assertStatus(400);
+        $this->complete($transaction)
+            ->assertOk()
+            ->assertJsonPath('success', false)
+            ->assertJsonPath('message', 'Unable to verify payment status: Paynamics could not confirm this payment.');
+        $this->complete($transaction)
+            ->assertOk()
+            ->assertJsonPath('success', false)
+            ->assertJsonPath('message', 'Unable to verify payment status: Paynamics could not be reached. Please try again.');
 
         $this->assertSame(Transaction::PAYMENT_STATUS['PENDING'], $transaction->fresh()->payment_status);
     }
@@ -486,7 +529,10 @@ class PaynamicsCheckoutTest extends TestCase
         Notification::fake();
         $transaction = $this->checkedOutTransaction('GR003');
 
-        $this->complete($transaction)->assertJsonPath('message', 'Payment failed');
+        $this->complete($transaction)->assertJsonPath(
+            'message',
+            'Payment was cancelled or failed on the gateway. This order has been marked failed.',
+        );
 
         Notification::assertSentTo(
             $transaction->user,
@@ -519,6 +565,68 @@ class PaynamicsCheckoutTest extends TestCase
 
         Notification::assertSentTo($transaction->user, PaymentSuccessfulNotification::class);
         Notification::assertNotSentTo($transaction->user, PaymentCancelledNotification::class);
+    }
+
+    #[Test]
+    public function admin_verify_marks_a_pending_order_paid_when_paynamics_reports_success(): void
+    {
+        $transaction = $this->checkedOutTransaction('GR001', 'Transaction Successful');
+
+        $this->adminVerify($transaction)
+            ->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('message', 'Payment completed successfully')
+            ->assertJsonPath('transaction.payment_status', Transaction::PAYMENT_STATUS['PAID']);
+
+        $this->assertSame(Transaction::PAYMENT_STATUS['PAID'], $transaction->fresh()->payment_status);
+        $this->assertSame(2, Ticket::where('transaction_uuid', $transaction->uuid)->count());
+    }
+
+    #[Test]
+    public function admin_verify_recovers_a_cancelled_order_when_paynamics_already_took_payment(): void
+    {
+        $transaction = $this->checkedOutTransaction('GR001', 'Transaction Successful');
+        $transaction->update([
+            'status' => Transaction::STATUS['CANCELLED'],
+            'payment_status' => Transaction::PAYMENT_STATUS['CANCELLED'],
+            'order_status' => Transaction::ORDER_STATUS['CANCELLED'],
+        ]);
+
+        $this->adminVerify($transaction)
+            ->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath(
+                'message',
+                'Payment verified with the gateway. This previously cancelled order is now marked paid.',
+            )
+            ->assertJsonPath('transaction.payment_status', Transaction::PAYMENT_STATUS['PAID']);
+
+        $fresh = $transaction->fresh();
+        $this->assertSame(Transaction::PAYMENT_STATUS['PAID'], $fresh->payment_status);
+        $this->assertSame(Transaction::ORDER_STATUS['CONFIRMED'], $fresh->order_status);
+        $this->assertSame(2, Ticket::where('transaction_uuid', $transaction->uuid)->count());
+    }
+
+    #[Test]
+    public function a_late_paynamics_callback_still_pays_a_locally_cancelled_order(): void
+    {
+        $transaction = $this->checkedOutTransaction('GR001', 'Transaction Successful');
+        $transaction->update([
+            'status' => Transaction::STATUS['CANCELLED'],
+            'payment_status' => Transaction::PAYMENT_STATUS['CANCELLED'],
+            'order_status' => Transaction::ORDER_STATUS['CANCELLED'],
+        ]);
+
+        $this->postJson('/api/v1/payments/paynamics/notification', [
+            'request_id' => $transaction->payment_order_id,
+            'response_code' => 'GR001',
+        ])
+            ->assertOk()
+            ->assertJsonPath('received', true)
+            ->assertJsonPath('payment_status', Transaction::PAYMENT_STATUS['PAID']);
+
+        $this->assertSame(Transaction::PAYMENT_STATUS['PAID'], $transaction->fresh()->payment_status);
+        $this->assertSame(2, Ticket::where('transaction_uuid', $transaction->uuid)->count());
     }
 
     #[Test]

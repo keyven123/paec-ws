@@ -93,15 +93,22 @@ class AutoVerifyPendingTransaction extends Command
                     continue;
                 }
 
-                if (($payload['message'] ?? '') === 'Payment is still pending') {
+                if (($payload['message'] ?? '') === 'Payment is still pending'
+                    || str_contains((string) ($payload['message'] ?? ''), 'still pending')) {
                     $processStillPending++;
                     $this->line("Transaction #{$transaction->uuid} is still pending on the gateway.");
                     continue;
                 }
 
-                if (($payload['message'] ?? '') === 'Payment failed') {
+                if (($payload['message'] ?? '') === 'Payment failed'
+                    || str_contains((string) ($payload['message'] ?? ''), 'cancelled or failed on the gateway')) {
                     $processFailed++;
                     $this->warn("Transaction #{$transaction->uuid} was cancelled after gateway reported failure.");
+                    continue;
+                }
+
+                if (str_contains((string) ($payload['message'] ?? ''), 'Unable to verify payment status')) {
+                    $this->warn("Verification did not complete for transaction #{$transaction->uuid}. HTTP {$statusCode} - {$message}");
                     continue;
                 }
 

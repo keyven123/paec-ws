@@ -139,7 +139,7 @@ class TempTransactionController extends Controller
      */
     private function assertCanManageTransaction(Transaction $transaction): void
     {
-        $actor = request()->user();
+        $actor = request()->user() ?? auth('admin')->user();
         if ($actor instanceof AdminUser) {
             return;
         }
@@ -1187,18 +1187,27 @@ class TempTransactionController extends Controller
     }
 
     /**
-     * Complete payment after successful payment confirmation.
-     * Admins may also re-check cancelled/failed orders when the gateway
-     * already took the customer's money (payment push-through).
+     * Complete payment after successful payment confirmation (customer / guest return URL).
+     * Does not re-open cancelled/failed orders — use admin Verify for that.
      */
     public function completePayment(string $transactionUuid): JsonResponse
     {
         $transaction = Transaction::where('uuid', $transactionUuid)->firstOrFail();
         $this->assertCanManageTransaction($transaction);
 
-        $forceReverify = request()->user() instanceof AdminUser;
+        return $this->reconcileGatewayPayment($transaction, forceReverify: false);
+    }
 
-        return $this->reconcileGatewayPayment($transaction, $forceReverify);
+    /**
+     * Admin Verify: re-query the payment gateway (same source of truth as the Paynamics
+     * callback) and mark pending/cancelled/failed orders paid when the gateway confirms success.
+     */
+    public function verifyPayment(string $transactionUuid): JsonResponse
+    {
+        $transaction = Transaction::where('uuid', $transactionUuid)->firstOrFail();
+        $this->assertCanManageTransaction($transaction);
+
+        return $this->reconcileGatewayPayment($transaction, forceReverify: true);
     }
 
     public function guestCompletePayment(GuestTransactionPaymentRequest $request, string $transactionUuid): JsonResponse
@@ -1222,7 +1231,8 @@ class TempTransactionController extends Controller
 
     /**
      * Paynamics server-to-server notification. The posted body is only used to find the order;
-     * its status always comes from the signed query API.
+     * its status always comes from the signed query API (same path as admin Verify).
+     * forceReverify so a late success callback can still pay a locally cancelled/pending order.
      */
     public function paynamicsNotification(Request $request): JsonResponse
     {
@@ -1245,7 +1255,7 @@ class TempTransactionController extends Controller
             return response()->json(['received' => false, 'message' => 'Unknown request_id'], 404);
         }
 
-        $outcome = $this->reconcileGatewayPayment($transaction)->getData(true);
+        $outcome = $this->reconcileGatewayPayment($transaction, forceReverify: true)->getData(true);
 
         return response()->json([
             'received' => true,
@@ -1293,9 +1303,26 @@ class TempTransactionController extends Controller
                 return response()->json([
                     'success' => false,
                     'payment_status' => $transaction->payment_status,
-                    'transaction' => $transaction,
+                    'transaction' => $transaction->fresh()->load([
+                        'event',
+                        'transactionOrders.eventTicket',
+                        'user',
+                    ]),
                     'message' => 'This order has no gateway payment reference to verify.',
-                ], 400);
+                ]);
+            }
+
+            if (empty($transaction->payment_id) && $transaction->payment_provider !== 'free') {
+                return response()->json([
+                    'success' => false,
+                    'payment_status' => $transaction->payment_status,
+                    'transaction' => $transaction->fresh()->load([
+                        'event',
+                        'transactionOrders.eventTicket',
+                        'user',
+                    ]),
+                    'message' => 'This order has no gateway payment reference to verify.',
+                ]);
             }
 
             // Handle free tickets - bypass payment verification
@@ -1308,17 +1335,45 @@ class TempTransactionController extends Controller
                 ]);
             }
 
+            try {
+                $paymentService = PaymentServiceFactory::forTransaction($transaction);
+            } catch (\Throwable $e) {
+                Log::error('Payment verification: no gateway service', [
+                    'transaction_uuid' => $transaction->uuid,
+                    'error' => $e->getMessage(),
+                ]);
 
-            $paymentService = PaymentServiceFactory::forTransaction($transaction);
-
-            // Check payment status
-            $paymentStatus = $paymentService->getPaymentStatus($transaction->payment_id);
-
-            if (!$paymentStatus['success']) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Unable to verify payment status'
-                ], 400);
+                    'payment_status' => $transaction->payment_status,
+                    'transaction' => $transaction->fresh()->load([
+                        'event',
+                        'transactionOrders.eventTicket',
+                        'user',
+                    ]),
+                    'message' => 'Unable to verify payment status: payment gateway is not available for this order.',
+                ]);
+            }
+
+            // Check payment status
+            $paymentStatus = $paymentService->getPaymentStatus((string) $transaction->payment_id);
+
+            if (! ($paymentStatus['success'] ?? false)) {
+                $gatewayError = trim((string) ($paymentStatus['error'] ?? ''));
+
+                return response()->json([
+                    'success' => false,
+                    'payment_status' => $transaction->payment_status,
+                    'transaction' => $transaction->fresh()->load([
+                        'event',
+                        'transactionOrders.eventTicket',
+                        'user',
+                    ]),
+                    'message' => $gatewayError !== ''
+                        ? 'Unable to verify payment status: '.$gatewayError
+                        : 'Unable to verify payment status. The gateway did not return a usable result — try again shortly.',
+                    'gateway_response' => $paymentStatus['raw_response'] ?? null,
+                ]);
             }
 
             // If PayPal order is APPROVED, capture it first
@@ -1351,9 +1406,13 @@ class TempTransactionController extends Controller
                     return response()->json([
                         'success' => false,
                         'message' => $errorMessage,
-                        'payment_status' => $paymentStatus['status'],
-                        'transaction' => $transaction->fresh()
-                    ], 400);
+                        'payment_status' => $paymentStatus['status'] ?? $transaction->payment_status,
+                        'transaction' => $transaction->fresh()->load([
+                            'event',
+                            'transactionOrders.eventTicket',
+                            'user',
+                        ]),
+                    ]);
                 }
             }
 
@@ -1373,8 +1432,8 @@ class TempTransactionController extends Controller
                         'transactionOrders.eventTicket',
                         'user',
                     ]),
-                    'message' => 'Payment is still pending',
-                ], 200);
+                    'message' => 'Payment is still pending on the gateway. No charge was confirmed yet.',
+                ]);
             }
 
             if ($resolution === PaymentStatusResolver::RESOLUTION_FAILED) {
@@ -1389,7 +1448,7 @@ class TempTransactionController extends Controller
                             'user',
                         ]),
                         'message' => 'Gateway confirms no payment was taken for this cancelled order.',
-                    ], 200);
+                    ]);
                 }
 
                 foreach ($this->openPaymentGroup($transaction) as $order) {
@@ -1409,14 +1468,15 @@ class TempTransactionController extends Controller
 
                 return response()->json([
                     'success' => false,
-                    'payment_status' => $gatewayStatus,
+                    'payment_status' => Transaction::PAYMENT_STATUS['FAILED'],
+                    'gateway_status' => $gatewayStatus,
                     'transaction' => $transaction->fresh()->load([
                         'event',
                         'transactionOrders.eventTicket',
                         'user',
                     ]),
-                    'message' => 'Payment failed',
-                ], 200);
+                    'message' => 'Payment was cancelled or failed on the gateway. This order has been marked failed.',
+                ]);
             }
 
             $ordersToFulfill = $forceReverify
@@ -1461,8 +1521,14 @@ class TempTransactionController extends Controller
 
             return response()->json([
                 'success' => false,
-                'message' => 'Payment completion failed',
-            ], 500);
+                'payment_status' => $transaction->fresh()->payment_status,
+                'transaction' => $transaction->fresh()->load([
+                    'event',
+                    'transactionOrders.eventTicket',
+                    'user',
+                ]),
+                'message' => 'Unable to verify payment status: '.$e->getMessage(),
+            ]);
         }
     }
 

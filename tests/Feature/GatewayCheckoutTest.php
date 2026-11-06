@@ -186,7 +186,7 @@ class GatewayCheckoutTest extends TestCase
         $this->postJson("/api/v1/public/transactions/{$transactionUuid}/guest/complete", ['email' => self::GUEST_EMAIL])
             ->assertOk()
             ->assertJsonPath('success', false)
-            ->assertJsonPath('message', 'Payment is still pending');
+            ->assertJsonPath('message', 'Payment is still pending on the gateway. No charge was confirmed yet.');
 
         $this->assertSame(Transaction::PAYMENT_STATUS['PENDING'], Transaction::findOrFail($transactionUuid)->payment_status);
     }

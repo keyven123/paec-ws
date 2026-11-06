@@ -2,6 +2,8 @@
 
 namespace App\Services;
 
+use App\Http\Controllers\MetaPixelSettingController;
+use App\Models\CmsSetting;
 use App\Models\Event;
 use App\Models\Transaction;
 use Illuminate\Support\Facades\Http;
@@ -10,42 +12,71 @@ use Illuminate\Support\Facades\Log;
 class MetaPixelService
 {
     /**
-     * Track a Meta Pixel event using Conversions API
+     * Resolve project-wide Meta Pixel credentials.
+     * Admin CMS settings take priority over .env when enabled.
      *
-     * @param string $eventName The event name (e.g., 'ViewContent', 'InitiateCheckout', 'AddPaymentInfo', 'Purchase')
-     * @param array $eventData Event data including user info, event info, etc.
-     * @param Event|null $event The event model (optional, for event-specific pixel config)
-     * @return bool Success status
+     * @return array{enabled: bool, pixel_id: string, access_token: string, test_event_code: ?string, source: string}
+     */
+    public function resolveProjectConfig(): array
+    {
+        $stored = CmsSetting::getValue(MetaPixelSettingController::SETTING_KEY, []);
+        if (! is_array($stored)) {
+            $stored = [];
+        }
+
+        $dbEnabled = (bool) ($stored['enabled'] ?? false);
+        $dbPixelId = trim((string) ($stored['pixel_id'] ?? ''));
+        $dbToken = trim((string) ($stored['access_token'] ?? ''));
+        $dbTestCode = isset($stored['test_event_code']) && $stored['test_event_code'] !== ''
+            ? trim((string) $stored['test_event_code'])
+            : null;
+
+        if ($dbEnabled && $dbPixelId !== '' && $dbToken !== '') {
+            return [
+                'enabled' => true,
+                'pixel_id' => $dbPixelId,
+                'access_token' => $dbToken,
+                'test_event_code' => $dbTestCode,
+                'source' => 'settings',
+            ];
+        }
+
+        $envPixelId = trim((string) config('services.meta.pixel_id', ''));
+        $envToken = trim((string) config('services.meta.access_token', ''));
+        $envTestCode = config('services.meta.test_event_code');
+        $envTestCode = filled($envTestCode) ? trim((string) $envTestCode) : null;
+
+        return [
+            'enabled' => $envPixelId !== '' && $envToken !== '',
+            'pixel_id' => $envPixelId,
+            'access_token' => $envToken,
+            'test_event_code' => $envTestCode,
+            'source' => 'env',
+        ];
+    }
+
+    /**
+     * Track a Meta Pixel event using Conversions API (project-wide pixel only).
+     *
+     * @param  string  $eventName  The event name (e.g., 'ViewContent', 'InitiateCheckout', 'AddPaymentInfo', 'Purchase')
+     * @param  array  $eventData  Event data including user info, event info, etc.
+     * @param  Event|null  $event  Unused for credentials (kept for call-site compatibility)
      */
     public function trackEvent(string $eventName, array $eventData, ?Event $event = null): bool
     {
-        // Check if Meta Pixel tracking is enabled
-        $pixelId = null;
-        $accessToken = null;
-        $testEventCode = null;
+        $config = $this->resolveProjectConfig();
+        $pixelId = $config['pixel_id'];
+        $accessToken = $config['access_token'];
+        $testEventCode = $config['test_event_code'];
 
-        $usingEventSpecific = false;
-
-        // Use event-specific pixel config if available and enabled
-        if ($event && $event->track_event_meta && $event->meta_pixel_id && $event->meta_pixel_key) {
-            $pixelId = $event->meta_pixel_id;
-            $accessToken = $event->meta_pixel_key;
-            $testEventCode = $event->meta_test_event_code;
-            $usingEventSpecific = true;
-        } else {
-            // Use global pixel config from environment
-            $pixelId = config('services.meta.pixel_id');
-            $accessToken = config('services.meta.access_token');
-            $testEventCode = config('services.meta.test_event_code');
-        }
-
-        if (!$pixelId || !$accessToken) {
+        if (! $config['enabled'] || $pixelId === '' || $accessToken === '') {
             Log::warning('Meta Pixel tracking skipped: Missing pixel ID or access token', [
                 'event_name' => $eventName,
-                'pixel_id' => $pixelId,
-                'has_access_token' => (bool) $accessToken,
+                'pixel_id' => $pixelId !== '' ? $pixelId : null,
+                'has_access_token' => $accessToken !== '',
                 'event_uuid' => $eventData['custom_data']['content_ids'][0] ?? null,
             ]);
+
             return false;
         }
 
@@ -67,50 +98,42 @@ class MetaPixelService
 
             if ($response->successful()) {
                 return true;
-            } else {
-                $errorBody = $response->json();
-                $errorMessage = $errorBody['error']['message'] ?? $response->body();
-                $errorCode = $errorBody['error']['code'] ?? null;
-                $errorSubcode = $errorBody['error']['error_subcode'] ?? null;
-
-                Log::warning("Meta Pixel event tracking failed: {$eventName}", [
-                    'pixel_id' => $pixelId,
-                    'event_name' => $eventName,
-                    'using_event_specific' => $usingEventSpecific,
-                    'status' => $response->status(),
-                    'error_code' => $errorCode,
-                    'error_subcode' => $errorSubcode,
-                    'error_message' => $errorMessage,
-                    'response' => $response->body(),
-                ]);
-
-                // Error code 100 with subcode 33 usually means permissions issue or invalid access token
-                if ($errorCode == 100 && $errorSubcode == 33) {
-                    if ($usingEventSpecific) {
-                        Log::error("Event-specific Meta Pixel access token is invalid or missing permissions.", [
-                            'event_uuid' => $event->uuid ?? null,
-                            'event_name' => $event->event_name ?? null,
-                            'event_pixel_id' => $pixelId,
-                            'access_token_prefix' => substr($accessToken, 0, 20) . '...',
-                            'suggestion' => 'The access token stored in meta_pixel_key field must have permissions for pixel ID ' . $pixelId . '. Generate a new access token from Meta Events Manager → Conversions API for this specific pixel.',
-                        ]);
-                    } else {
-                        Log::error("Global Meta Pixel access token is invalid or missing permissions.", [
-                            'pixel_id' => $pixelId,
-                            'access_token_prefix' => substr($accessToken, 0, 20) . '...',
-                            'suggestion' => 'Verify the access token in META_PIXEL_ACCESS_TOKEN has ads_management permissions for pixel ' . $pixelId,
-                        ]);
-                    }
-                }
-
-                return false;
             }
+
+            $errorBody = $response->json();
+            $errorMessage = $errorBody['error']['message'] ?? $response->body();
+            $errorCode = $errorBody['error']['code'] ?? null;
+            $errorSubcode = $errorBody['error']['error_subcode'] ?? null;
+
+            Log::warning("Meta Pixel event tracking failed: {$eventName}", [
+                'pixel_id' => $pixelId,
+                'event_name' => $eventName,
+                'config_source' => $config['source'],
+                'using_event_specific' => false,
+                'status' => $response->status(),
+                'error_code' => $errorCode,
+                'error_subcode' => $errorSubcode,
+                'error_message' => $errorMessage,
+                'response' => $response->body(),
+            ]);
+
+            // Error code 100 with subcode 33 usually means permissions issue or invalid access token
+            if ($errorCode == 100 && $errorSubcode == 33) {
+                Log::error('Global Meta Pixel access token is invalid or missing permissions.', [
+                    'pixel_id' => $pixelId,
+                    'access_token_prefix' => substr($accessToken, 0, 20).'...',
+                    'suggestion' => 'Verify the project Meta Pixel access token (Admin → Meta Pixel or META_PIXEL_ACCESS_TOKEN) has permissions for pixel '.$pixelId,
+                ]);
+            }
+
+            return false;
         } catch (\Exception $e) {
             Log::error("Meta Pixel event tracking error: {$eventName}", [
                 'pixel_id' => $pixelId,
                 'event_name' => $eventName,
                 'error' => $e->getMessage(),
             ]);
+
             return false;
         }
     }
