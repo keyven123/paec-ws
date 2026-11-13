@@ -55,6 +55,7 @@ class EventTicketPublicResource extends JsonResource
             'operation_custom_days' => $this->operation_days === 'custom'
                 ? ($this->operation_custom_days ?? [])
                 : [],
+            'operation_allowed_dates' => $this->normalizedAllowedDates(),
             'operation_hours_from' => $this->formatOperationTime($this->operation_hours_from),
             'operation_hours_to' => $this->formatOperationTime($this->operation_hours_to),
             'timeslot_duration_minutes' => $this->timeslot_duration_minutes,
