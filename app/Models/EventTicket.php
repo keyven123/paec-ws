@@ -44,6 +44,7 @@ class EventTicket extends Model
         'validity_days',
         'operation_days',
         'operation_custom_days',
+        'operation_allowed_dates',
         'operation_hours_from',
         'operation_hours_to',
         'timeslot_duration_minutes',
@@ -119,6 +120,7 @@ class EventTicket extends Model
         'bundle_quantity' => 'integer',
         'bundle_tickets' => 'array',
         'operation_custom_days' => 'array',
+        'operation_allowed_dates' => 'array',
         'timeslot_duration_minutes' => 'integer',
         'timeslot_interval_minutes' => 'integer',
         'available_from' => 'datetime',
@@ -158,6 +160,7 @@ class EventTicket extends Model
         'validity_days',
         'operation_days',
         'operation_custom_days',
+        'operation_allowed_dates',
         'operation_hours_from',
         'operation_hours_to',
         'timeslot_duration_minutes',
@@ -294,15 +297,22 @@ class EventTicket extends Model
 
     /**
      * Weekday / weekend / custom-day restriction from Operations settings.
+     * Specific dates in operation_allowed_dates bypass the weekday rule.
      */
     public function allowsVisitDayOfWeek(string $visitDate): bool
     {
+        $date = Carbon::parse($visitDate, 'Asia/Manila')->toDateString();
+
+        if ($this->isAllowedSpecificDate($date)) {
+            return true;
+        }
+
         $days = $this->operation_days ?: self::OPERATION_DAYS['ANY'];
         if ($days === self::OPERATION_DAYS['ANY']) {
             return true;
         }
 
-        $dayOfWeek = Carbon::parse($visitDate, 'Asia/Manila')->dayOfWeekIso; // 1=Mon … 7=Sun
+        $dayOfWeek = Carbon::parse($date, 'Asia/Manila')->dayOfWeekIso; // 1=Mon … 7=Sun
         $isWeekend = $dayOfWeek >= 6;
 
         if ($days === self::OPERATION_DAYS['WEEKDAYS']) {
@@ -342,6 +352,44 @@ class EventTicket extends Model
             array_map(static fn ($day) => strtolower(trim((string) $day)), $raw),
             static fn (string $day) => in_array($day, $valid, true),
         )));
+    }
+
+    /**
+     * Explicit calendar dates that remain bookable even when the weekday is off.
+     *
+     * @return list<string> Y-m-d
+     */
+    public function normalizedAllowedDates(): array
+    {
+        $raw = $this->operation_allowed_dates;
+        if (! is_array($raw)) {
+            return [];
+        }
+
+        $dates = [];
+        foreach ($raw as $value) {
+            $trimmed = trim((string) $value);
+            if ($trimmed === '') {
+                continue;
+            }
+            try {
+                $dates[] = Carbon::parse($trimmed, 'Asia/Manila')->toDateString();
+            } catch (\Throwable) {
+                continue;
+            }
+        }
+
+        $dates = array_values(array_unique($dates));
+        sort($dates);
+
+        return $dates;
+    }
+
+    public function isAllowedSpecificDate(string $visitDate): bool
+    {
+        $date = Carbon::parse($visitDate, 'Asia/Manila')->toDateString();
+
+        return in_array($date, $this->normalizedAllowedDates(), true);
     }
 
     public function visitDayUnavailableMessage(string $visitDate, ?string $ticketName = null): string

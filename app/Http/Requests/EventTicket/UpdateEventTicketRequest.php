@@ -107,6 +107,8 @@ class UpdateEventTicketRequest extends FormRequest
             'operation_days' => ['nullable', 'string', Rule::in(['any', 'weekdays', 'weekends', 'custom'])],
             'operation_custom_days' => ['nullable', 'array'],
             'operation_custom_days.*' => ['string', Rule::in(['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'])],
+            'operation_allowed_dates' => ['nullable', 'array', 'max:100'],
+            'operation_allowed_dates.*' => ['date_format:Y-m-d'],
             'operation_hours_from' => ['nullable', 'date_format:H:i'],
             'operation_hours_to' => [
                 'nullable',
@@ -148,10 +150,13 @@ class UpdateEventTicketRequest extends FormRequest
 
             if (($this->input('operation_days') ?? null) === 'custom') {
                 $customDays = $this->input('operation_custom_days');
-                if (! is_array($customDays) || count($customDays) < 1) {
+                $allowedDates = $this->input('operation_allowed_dates');
+                $hasDays = is_array($customDays) && count($customDays) >= 1;
+                $hasDates = is_array($allowedDates) && count($allowedDates) >= 1;
+                if (! $hasDays && ! $hasDates) {
                     $validator->errors()->add(
                         'operation_custom_days',
-                        'Select at least one available day for custom operations.',
+                        'Select at least one available day, or add a specific date.',
                     );
                 }
             }
@@ -190,6 +195,19 @@ class UpdateEventTicketRequest extends FormRequest
         ];
         if (($this->input('operation_days') ?? null) !== 'custom') {
             $merge['operation_custom_days'] = null;
+        }
+        if ($this->has('operation_allowed_dates')) {
+            $dates = $this->input('operation_allowed_dates');
+            if (! is_array($dates) || count($dates) === 0) {
+                $merge['operation_allowed_dates'] = null;
+            } else {
+                $normalized = array_values(array_unique(array_filter(array_map(
+                    static fn ($date) => is_string($date) ? trim($date) : '',
+                    $dates,
+                ))));
+                sort($normalized);
+                $merge['operation_allowed_dates'] = $normalized === [] ? null : $normalized;
+            }
         }
         if ($this->has('with_terms_and_conditions') && ! $this->boolean('with_terms_and_conditions')) {
             $merge['terms_and_conditions'] = null;
